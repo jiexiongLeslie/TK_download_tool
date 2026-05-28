@@ -20,12 +20,12 @@ timeout /t 3 /nobreak > nul
 
 :: 打开浏览器
 echo   正在打开浏览器...
-start https://127.0.0.1:5000
+start https://127.0.0.1:5443
 
 echo.
 echo   ✅ 服务已启动! (HTTPS)
-echo   🔒 本机访问: https://127.0.0.1:5000
-echo   📱 远程访问: https://^<你的IP^>:5000
+echo   🔄 http://^<你的IP^>:5000 -^> https://^<你的IP^>:5443
+echo   🔒 本机访问: https://127.0.0.1:5443
 echo   ⚠️ 首次需信任自签名证书
 echo.
 echo   关闭此窗口将停止服务。

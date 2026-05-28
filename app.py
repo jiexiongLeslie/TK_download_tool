@@ -377,25 +377,23 @@ if __name__ == "__main__":
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     local_ip = _get_local_ip()
 
-    # HTTP → HTTPS 重定向服务
+    # HTTP 重定向服务（5000→5443）
     def run_http_redirect():
         from http.server import HTTPServer, BaseHTTPRequestHandler
         class RedirectHandler(BaseHTTPRequestHandler):
             def do_GET(self):
                 host = self.headers.get("Host", f"{local_ip}:5000").split(":")[0]
                 self.send_response(301)
-                self.send_header("Location", f"https://{host}:5000{self.path}")
+                self.send_header("Location", f"https://{host}:5443{self.path}")
                 self.end_headers()
-            def do_HEAD(self):
-                self.do_GET()
+            def do_HEAD(self): self.do_GET()
             def do_POST(self):
                 host = self.headers.get("Host", f"{local_ip}:5000").split(":")[0]
                 self.send_response(307)
-                self.send_header("Location", f"https://{host}:5000{self.path}")
+                self.send_header("Location", f"https://{host}:5443{self.path}")
                 self.end_headers()
             def log_message(self, *args): pass
-        httpd = HTTPServer(("0.0.0.0", 5080), RedirectHandler)
-        httpd.serve_forever()
+        HTTPServer(("0.0.0.0", 5000), RedirectHandler).serve_forever()
 
     threading.Thread(target=run_http_redirect, daemon=True).start()
 
@@ -404,18 +402,16 @@ if __name__ == "__main__":
     import asyncio
 
     config = Config()
-    config.bind = ["0.0.0.0:5000"]
+    config.bind = ["0.0.0.0:5443"]
     config.certfile = "certs/cert.pem"
     config.keyfile = "certs/key.pem"
     config.worker_class = "asyncio"
     config.accesslog = "-"
 
     print(f"\n  {'='*50}")
-    print(f"  🎬 短视频批量下载器 v1.3 (hypercorn)")
-    print(f"  🔒 HTTPS: https://127.0.0.1:5000")
-    print(f"  🔄 HTTP:  http://{local_ip}:5080 → 自动跳转 HTTPS")
-    print(f"  📱 远程: https://{local_ip}:5000")
+    print(f"  🎬 短视频批量下载器 v1.3")
+    print(f"  🔄 http://{local_ip}:5000 → https://{local_ip}:5443")
+    print(f"  🔒 HTTPS: https://{local_ip}:5443")
     print(f"  ⚠️ 远程首次需信任证书（高级/继续访问）")
-    print(f"  👥 异步并发，支持多人同时使用")
     print(f"  {'='*50}\n")
     asyncio.run(hc_serve(app, config))
