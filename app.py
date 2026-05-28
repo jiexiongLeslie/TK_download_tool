@@ -15,6 +15,12 @@ CORS(app)
 
 BASE_DIR = Path(__file__).parent
 DOWNLOADS_DIR = BASE_DIR / "downloads"
+STATIC_DIR = BASE_DIR / "static"
+
+
+@app.route("/static/<path:filename>")
+def serve_static(filename):
+    return send_from_directory(str(STATIC_DIR), filename)
 
 
 @app.route("/")
