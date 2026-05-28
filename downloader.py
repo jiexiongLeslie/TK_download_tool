@@ -240,8 +240,8 @@ def _download_via_ytdlp(url: str, save_dir: Path, job_id: str, proxy: str = None
         "outtmpl": outtmpl,
         "quiet": True,
         "no_warnings": True,
-        "format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
-        "merge_output_format": "mp4",
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "merge_output_format": "mp4",  # 优先合并为 mp4，失败则保持原格式
         "noplaylist": True,
         "overwrites": False,  # 不覆盖已有文件
         "http_headers": {
@@ -287,9 +287,15 @@ def _download_via_ytdlp(url: str, save_dir: Path, job_id: str, proxy: str = None
 
     except Exception as e:
         error_msg = str(e)
-        # 常见错误提示优化
-        if "login" in error_msg.lower() or "cookies" in error_msg.lower() or "impersonation" in error_msg.lower():
-            error_msg = "需要 TikTok 登录认证。yt-dlp 方案不可用，请使用 tikwm 方案。"
+        # 平台特定错误提示优化
+        if "login" in error_msg.lower() or "cookies" in error_msg.lower():
+            error_msg = "需要登录认证，yt-dlp 方案不可用。"
+        elif "instagram" in error_msg.lower() and ("empty" in error_msg.lower() or "granting" in error_msg.lower()):
+            error_msg = "Instagram 需要登录认证（或该帖子为私密/不存在）。请使用 --cookies 或浏览器登录后重试。"
+        elif "javascript" in error_msg.lower() or "js runtime" in error_msg.lower():
+            error_msg = "建议安装 Node.js 以获得更好的 YouTube 支持（非必须）。"
+        elif "ffmpeg" in error_msg.lower():
+            error_msg = "建议安装 FFmpeg 以获得最佳视频质量。当前使用备选格式下载。"
         raise Exception(error_msg)
 
 

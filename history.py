@@ -95,3 +95,13 @@ def _file_still_exists(filepath: str) -> bool:
         return Path(filepath).is_file()
     except Exception:
         return False
+
+
+def clear_ip_history(ip: str) -> int:
+    """清除指定 IP 的下载历史，返回清除数量"""
+    all_history = _load_all()
+    count = len(all_history.get(ip, {}))
+    if ip in all_history:
+        del all_history[ip]
+        _save_all(all_history)
+    return count

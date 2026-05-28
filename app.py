@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from downloader import download_video, get_progress, extract_job_id
-from history import check_duplicates, record_download, load_history, all_history
+from history import check_duplicates, record_download, load_history, all_history, clear_ip_history
 
 
 def _get_client_ip() -> str:
@@ -29,6 +29,7 @@ CORS(app)
 BASE_DIR = Path(__file__).parent
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 STATIC_DIR = BASE_DIR / "static"
+VIDEO_EXTS = {".mp4", ".webm", ".mkv", ".mov", ".avi", ".flv", ".ts"}  # 支持的视频格式
 
 
 @app.route("/static/<path:filename>")
@@ -39,6 +40,22 @@ def serve_static(filename):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/health")
+def api_health():
+    """健康检查"""
+    try:
+        import yt_dlp
+        ytdlp_ok = True
+    except ImportError:
+        ytdlp_ok = False
+    return jsonify({
+        "status": "ok",
+        "version": "1.3",
+        "yt_dlp": ytdlp_ok,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+    })
 
 
 @app.route("/api/download", methods=["POST"])
@@ -136,6 +153,13 @@ def api_export_history():
     )
 
 
+@app.route("/api/history/clear", methods=["POST"])
+def api_clear_history():
+    """清空当前 IP 的下载历史"""
+    count = clear_ip_history(_get_client_ip())
+    return jsonify({"message": f"已清空 {count} 条下载记录", "count": count})
+
+
 @app.route("/api/pick-dir")
 def api_pick_dir():
     """打开 Windows 原生文件夹选择对话框，返回选中路径"""
@@ -188,20 +212,27 @@ def api_progress_one(job_id):
 
 @app.route("/api/video/<job_id>")
 def api_serve_video(job_id):
-    """提供视频文件下载/播放（直接从磁盘查找，不依赖内存记录）"""
+    """提供视频文件下载/播放（直接从磁盘查找所有视频格式）"""
     filename = request.args.get("name", "")
     save_dir = request.args.get("dir", "")
     search_dir = Path(save_dir) if save_dir else DOWNLOADS_DIR
 
-    # 先按完整文件名查找
-    if filename and filename.endswith(".mp4"):
-        path = search_dir / filename
-        if path.exists():
-            return send_file(path, mimetype="video/mp4", as_attachment=False)
+    # MIME 映射
+    mime_map = {".mp4": "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska",
+                ".mov": "video/quicktime", ".flv": "video/x-flv", ".ts": "video/mp2t"}
 
-    # 回退：按 job_id 模糊匹配（兼容旧链接）
-    for f in search_dir.glob(f"*{job_id}*.mp4"):
-        return send_file(f, mimetype="video/mp4", as_attachment=False)
+    # 先按完整文件名查找
+    if filename:
+        path = search_dir / filename
+        if path.exists() and path.suffix.lower() in VIDEO_EXTS:
+            mime = mime_map.get(path.suffix.lower(), "video/mp4")
+            return send_file(path, mimetype=mime, as_attachment=False)
+
+    # 回退：按 job_id 模糊匹配
+    for ext in VIDEO_EXTS:
+        for f in search_dir.glob(f"*{job_id}*{ext}"):
+            mime = mime_map.get(ext, "video/mp4")
+            return send_file(f, mimetype=mime, as_attachment=False)
 
     return jsonify({"error": "文件不存在"}), 404
 
@@ -216,7 +247,10 @@ def api_file_info():
 
     files = []
     if search_dir.exists():
-        for f in sorted(search_dir.glob("*.mp4"), key=lambda x: x.stat().st_mtime, reverse=True):
+        all_videos = []
+        for ext in VIDEO_EXTS:
+            all_videos.extend(search_dir.glob(f"*{ext}"))
+        for f in sorted(all_videos, key=lambda x: x.stat().st_mtime, reverse=True):
             files.append({
                 "name": f.name,
                 "size": f.stat().st_size,
@@ -238,9 +272,9 @@ def api_delete_file():
     search_dir = Path(dir_param) if dir_param else DOWNLOADS_DIR
     filepath = search_dir / filename
 
-    # 安全检查：只允许删除 .mp4 文件
-    if filepath.suffix.lower() != ".mp4":
-        return jsonify({"error": "仅支持删除 .mp4 文件"}), 400
+    # 安全检查：只允许删除视频文件
+    if filepath.suffix.lower() not in VIDEO_EXTS:
+        return jsonify({"error": f"不支持的视频格式: {filepath.suffix}"}), 400
 
     if not filepath.exists():
         return jsonify({"error": "文件不存在"}), 404
