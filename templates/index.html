@@ -533,18 +533,24 @@ function openDownloads() {
 
 // ========== Files ==========
 async function loadFiles() {
+  const container = document.getElementById("fileList");
+  container.dataset.showCount = "";  // 重置分页
   try {
     const dir = currentSaveDir || "";
     const url = dir ? `/api/file?dir=${encodeURIComponent(dir)}` : "/api/file";
     const res = await fetch(url);
     const data = await res.json();
-    // 更新目录标签
     const label = document.getElementById("dirLabel");
-    if (label) {
-      label.textContent = data.dir ? `— ${data.dir}` : "— 默认目录";
-    }
+    if (label) { label.textContent = data.dir ? `— ${data.dir}` : "— 默认目录"; }
     renderFiles(data.files);
   } catch (e) {}
+}
+
+function showMoreFiles(count) {
+  const container = document.getElementById("fileList");
+  const files = container._allFiles || [];
+  container.dataset.showCount = count;
+  renderFiles(files);
 }
 
 function resetDir() {
@@ -561,7 +567,13 @@ function renderFiles(files) {
     return;
   }
 
-  container.innerHTML = files.map(f => `
+  // 分页：首次展示 8 个
+  const pageSize = 8;
+  const showCount = container.dataset.showCount ? parseInt(container.dataset.showCount) : pageSize;
+  const visible = files.slice(0, showCount);
+  const hasMore = files.length > showCount;
+
+  let html = visible.map(f => `
     <div class="file-card">
       <div class="fname">${esc(f.name)}</div>
       <div class="finfo">
@@ -575,6 +587,19 @@ function renderFiles(files) {
       </div>
     </div>
   `).join("");
+
+  if (hasMore) {
+    html += `<div style="grid-column:1/-1;text-align:center;padding:12px">
+      <span style="font-size:12px;color:var(--text2)">显示 ${showCount} / ${files.length} 个</span>
+      <br><button class="btn btn-secondary" onclick="showMoreFiles(${showCount + pageSize})" style="margin-top:8px;padding:8px 20px;">📂 加载更多 (+${Math.min(pageSize, files.length - showCount)})</button>
+    </div>`;
+  }
+
+  container.innerHTML = html;
+  // 保存当前显示数量
+  container.dataset.showCount = showCount;
+  // 保存完整文件列表
+  container._allFiles = files;
 }
 
 function formatSize(bytes) {
