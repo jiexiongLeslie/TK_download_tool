@@ -355,13 +355,20 @@ https://vm.tiktok.com/abcdef/
 
   <!-- Downloaded Files -->
   <div class="card">
-    <h3>📂 已下载文件 <span id="dirLabel" style="font-weight:400;font-size:12px;color:var(--text2)">— 默认目录</span>
-      <a class="btn btn-secondary" href="/api/history/export" download style="float:right;padding:5px 12px;font-size:12px;margin-top:-3px;">📋 导出记录</a>
+    <h3 style="cursor:pointer;user-select:none" onclick="toggleFiles()">
+      <span id="filesChevron" style="transition:transform 0.3s;display:inline-block">▶</span> 已下载文件
+      <span id="filesCount" style="font-weight:400;font-size:12px;color:var(--text2);margin-left:8px"></span>
+      <span id="dirLabel" style="font-weight:400;font-size:12px;color:var(--text2);margin-left:4px"></span>
+      <div style="flex:1"></div>
+      <a class="btn btn-secondary" href="/api/history/export" download style="padding:4px 10px;font-size:11px;margin-right:8px" onclick="event.stopPropagation()">📋 导出记录</a>
+      <span id="filesToggle" style="font-size:12px;color:var(--text3);font-weight:400;cursor:pointer" onclick="event.stopPropagation();toggleFiles()">展开 ▼</span>
     </h3>
-    <div class="files-grid" id="fileList">
-      <div class="empty-state">
-        <div class="icon">📦</div>
-        <p>暂无已下载文件</p>
+    <div id="filesContent" style="display:none">
+      <div class="files-grid" id="fileList">
+        <div class="empty-state">
+          <div class="icon">📦</div>
+          <p>暂无已下载文件</p>
+        </div>
       </div>
     </div>
   </div>
@@ -470,6 +477,8 @@ function stopPolling() {
   document.getElementById("btnDownload").disabled = false;
   document.getElementById("btnDownload").textContent = "⬇️ 开始下载";
   loadFiles();  // 下载完成后自动刷新文件列表
+  // 自动展开已下载文件
+  if (!filesExpanded) toggleFiles();
   // 浏览器通知
   const done = Object.values(jobMap).filter(j => j.status === "done").length;
   const fail = Object.values(jobMap).filter(j => j.status === "error").length;
@@ -614,6 +623,28 @@ function showMoreFiles(count) {
 
 function resetDir() {}
 
+// ========== Collapsible Files ==========
+let filesExpanded = false;
+function toggleFiles() {
+  filesExpanded = !filesExpanded;
+  const content = document.getElementById("filesContent");
+  const chevron = document.getElementById("filesChevron");
+  const toggle = document.getElementById("filesToggle");
+  if (filesExpanded) {
+    content.style.display = "block";
+    chevron.style.transform = "rotate(90deg)";
+    toggle.textContent = "收起 ▲";
+    if (!content.dataset.loaded) {
+      loadFiles();
+      content.dataset.loaded = "1";
+    }
+  } else {
+    content.style.display = "none";
+    chevron.style.transform = "rotate(0deg)";
+    toggle.textContent = "展开 ▼";
+  }
+}
+
 // ========== Directory Picker ==========
 async function pickDirectory() {
   try {
@@ -629,6 +660,11 @@ async function pickDirectory() {
 
 function renderFiles(files) {
   const container = document.getElementById("fileList");
+  // 更新文件计数
+  const countEl = document.getElementById("filesCount");
+  if (countEl) {
+    countEl.textContent = files && files.length > 0 ? `(${files.length} 个)` : "";
+  }
   if (!files || files.length === 0) {
     container.innerHTML = '<div class="empty-state"><div class="icon">📦</div><p>暂无已下载文件</p></div>';
     return;
@@ -731,7 +767,6 @@ if ("Notification" in window && Notification.permission === "default") {
 
 // Kickoff
 initDir();
-loadFiles();
 </script>
 
 <!-- ===== 动态星空背景 ===== -->
