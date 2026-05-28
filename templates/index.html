@@ -302,12 +302,39 @@ async function startDownload() {
   if (!input) { alert("请粘贴至少一个 TikTok 视频链接"); return; }
 
   const saveDir = document.getElementById("dirInput").value.trim();
-
   const btn = document.getElementById("btnDownload");
+
+  // Step 1: 检查是否已下载过
   btn.disabled = true;
-  btn.textContent = "⏳ 提交中...";
+  btn.textContent = "🔍 检查中...";
 
   try {
+    const checkRes = await fetch("/api/download/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls: input }),
+    });
+    const checkData = await checkRes.json();
+    const dupes = checkData.duplicates || [];
+
+    // Step 2: 有重复则确认
+    if (dupes.length > 0) {
+      const dupList = dupes.map(d =>
+        `• ${d.record.title || d.url.slice(-30)}\n  🕐 ${d.record.time}`
+      ).join("\n\n");
+
+      const confirmed = confirm(
+        `${dupes.length}/${checkData.duplicates.length + (checkData.new || []).length} 个链接已下载过：\n\n${dupList}\n\n是否仍要重新下载这些视频？\n（已存在的文件会自动加上 _1 _2 后缀）`
+      );
+      if (!confirmed) {
+        btn.disabled = false;
+        btn.textContent = "⬇️ 开始下载";
+        return;
+      }
+    }
+
+    // Step 3: 执行下载
+    btn.textContent = "⏳ 提交中...";
     const res = await fetch("/api/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -316,21 +343,18 @@ async function startDownload() {
     const data = await res.json();
     if (data.error) { alert(data.error); btn.disabled = false; btn.textContent = "⬇️ 开始下载"; return; }
 
-    // 以服务端返回的实际目录为准
     if (data.save_dir) {
       currentSaveDir = data.save_dir;
       localStorage.setItem("tiktok_save_dir", data.save_dir);
       document.getElementById("dirInput").value = data.save_dir;
     }
 
-    // Init job map
     (data.jobs || []).forEach(j => {
       jobMap[j.job_id] = { ...j, title: "准备中...", percent: 0 };
     });
 
     renderJobs();
     startPolling();
-    // 刷新文件列表
     loadFiles();
   } catch (e) {
     alert("请求失败: " + e.message);

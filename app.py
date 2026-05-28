@@ -9,6 +9,7 @@ from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from downloader import download_video, get_progress, extract_job_id
+from history import check_duplicates, record_download, load_history
 
 app = Flask(__name__)
 CORS(app)
@@ -60,7 +61,10 @@ def api_download():
     # 异步执行下载
     def run_downloads():
         for url in urls:
-            download_video(url, save_dir=str(target_dir))
+            result = download_video(url, save_dir=str(target_dir))
+            # 记录到下载历史
+            if result["status"] == "done":
+                record_download(url, result["job_id"], result["title"], result["filepath"])
 
     thread = threading.Thread(target=run_downloads, daemon=True)
     thread.start()
@@ -70,6 +74,20 @@ def api_download():
         "save_dir": str(target_dir),
         "jobs": jobs,
     })
+
+
+@app.route("/api/download/check", methods=["POST"])
+def api_check_duplicates():
+    """检查链接是否已下载过"""
+    data = request.get_json()
+    urls_input = data.get("urls", "")
+    urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
+
+    if not urls:
+        return jsonify({"duplicates": [], "new": [], "total_history": 0})
+
+    result = check_duplicates(urls)
+    return jsonify(result)
 
 
 @app.route("/api/progress")
