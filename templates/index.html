@@ -421,44 +421,78 @@ async function startDownload() {
   if (!isLocalClient) {
     btn.disabled = true;
     const urls = input.split("\n").map(u => u.trim()).filter(Boolean);
-    btn.textContent = `⏳ 下载中 0/${urls.length}`;
-    let done = 0;
+    const total = urls.length;
+    // 初始化进度
+    urls.forEach((url, i) => {
+      const jid = `remote_${Date.now()}_${i}`;
+      jobMap[jid] = { url, status: "pending", percent: 0, title: url };
+    });
+    renderJobs();
 
-    for (const url of urls) {
+    let doneCount = 0;
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
+      const jid = Object.keys(jobMap).find(k => jobMap[k].url === url && jobMap[k].status === "pending");
+      if (!jid) continue;
+
+      jobMap[jid].status = "downloading";
+      renderJobs();
+
       try {
         const resp = await fetch("/api/stream-download", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url, use_proxy: useProxy }),
         });
-        if (resp.ok) {
-          const blob = await resp.blob();
-          const cd = resp.headers.get("Content-Disposition") || "";
-          const m = cd.match(/filename\*=UTF-8''(.+)/) || cd.match(/filename="?([^"]+)"?/);
-          const filename = m ? decodeURIComponent(m[1]) : `video_${Date.now()}.mp4`;
+        if (!resp.ok) { jobMap[jid].status = "error"; jobMap[jid].error = "下载失败"; renderJobs(); doneCount++; continue; }
 
-          // 优先用 File System Access API 写入选定目录
-          if (remoteDirHandle) {
-            try {
-              const fileHandle = await remoteDirHandle.getFileHandle(filename, { create: true });
-              const writable = await fileHandle.createWritable();
-              await writable.write(blob);
-              await writable.close();
-            } catch (e) {
-              // 写入失败，回退到浏览器下载
-              triggerDownload(blob, filename);
-            }
-          } else {
-            // 未选目录，浏览器默认下载
-            triggerDownload(blob, filename);
+        const totalBytes = parseInt(resp.headers.get("Content-Length") || "0");
+        const reader = resp.body.getReader();
+        const chunks = [];
+        let received = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          if (totalBytes > 0) {
+            jobMap[jid].percent = Math.round(received / totalBytes * 100);
+            renderJobs();
           }
         }
-        done++;
-        btn.textContent = `⏳ 下载中 ${done}/${urls.length}`;
-      } catch (e) { console.error(e); done++; }
+
+        const blob = new Blob(chunks);
+        const cd = resp.headers.get("Content-Disposition") || "";
+        const m = cd.match(/filename\*=UTF-8''(.+)/) || cd.match(/filename="?([^"]+)"?/);
+        const filename = m ? decodeURIComponent(m[1]) : `video_${Date.now()}.mp4`;
+
+        if (remoteDirHandle) {
+          try {
+            const fileHandle = await remoteDirHandle.getFileHandle(filename, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+          } catch (e) { triggerDownload(blob, filename); }
+        } else {
+          triggerDownload(blob, filename);
+        }
+
+        jobMap[jid].status = "done";
+        jobMap[jid].percent = 100;
+        jobMap[jid].title = filename;
+        renderJobs();
+      } catch (e) {
+        jobMap[jid].status = "error";
+        jobMap[jid].error = e.message;
+        renderJobs();
+      }
+      doneCount++;
+      btn.textContent = `⏳ 已完成 ${doneCount}/${total}`;
     }
     btn.disabled = false;
     btn.textContent = "⬇️ 开始下载";
+    stopPolling();  // 远程模式也触发通知
     return;
   }
 
