@@ -124,6 +124,33 @@ def api_file_info():
     return jsonify({"files": files, "dir": str(search_dir)})
 
 
+@app.route("/api/file/delete", methods=["POST"])
+def api_delete_file():
+    """删除指定文件"""
+    data = request.get_json()
+    filename = data.get("filename", "")
+    dir_param = data.get("dir", "")
+
+    if not filename:
+        return jsonify({"error": "请指定要删除的文件"}), 400
+
+    search_dir = Path(dir_param) if dir_param else DOWNLOADS_DIR
+    filepath = search_dir / filename
+
+    # 安全检查：只允许删除 .mp4 文件
+    if filepath.suffix.lower() != ".mp4":
+        return jsonify({"error": "仅支持删除 .mp4 文件"}), 400
+
+    if not filepath.exists():
+        return jsonify({"error": "文件不存在"}), 404
+
+    try:
+        filepath.unlink()
+        return jsonify({"message": f"已删除 {filename}"})
+    except Exception as e:
+        return jsonify({"error": f"删除失败: {e}"}), 500
+
+
 def _get_local_ip() -> str:
     """获取本机局域网 IP"""
     import socket

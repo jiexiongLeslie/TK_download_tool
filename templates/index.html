@@ -184,6 +184,17 @@
     transition: opacity 0.15s;
   }
   .file-card .fdl:hover { opacity: 0.85; }
+  .file-actions { display: flex; gap: 6px; margin-top: 10px; }
+  .file-actions a, .file-actions button {
+    flex: 1; padding: 7px; border-radius: 6px; text-align: center;
+    font-size: 12px; font-weight: 600; cursor: pointer; border: none;
+    transition: opacity 0.15s;
+  }
+  .btn-del {
+    background: rgba(254,44,85,0.2); color: var(--accent);
+    border: 1px solid var(--accent) !important;
+  }
+  .btn-del:hover { background: rgba(254,44,85,0.4); }
 
   .stats {
     display: flex; gap: 24px; margin-bottom: 20px;
@@ -475,7 +486,10 @@ function renderFiles(files) {
         <span>${formatSize(f.size)}</span>
         <span>${f.mtime}</span>
       </div>
-      <a class="fdl" href="/api/video/${f.name.replace(/\.mp4$/,'')}" download>⬇️ 下载</a>
+      <div class="file-actions">
+        <a class="btn-dl" href="/api/video/${f.name.replace(/\.mp4$/,'')}" download>⬇️</a>
+        <button class="btn-del" onclick="deleteFile('${escJs(f.name)}')">🗑️</button>
+      </div>
     </div>
   `).join("");
 }
@@ -486,6 +500,27 @@ function formatSize(bytes) {
   let i = 0, s = bytes;
   while (s >= 1024 && i < units.length - 1) { s /= 1024; i++; }
   return s.toFixed(1) + " " + units[i];
+}
+
+function escJs(s) {
+  return s.replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
+async function deleteFile(filename) {
+  if (!confirm(`确认删除 \"${filename}\"？`)) return;
+  try {
+    const dir = currentSaveDir || "";
+    const res = await fetch("/api/file/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename, dir }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    loadFiles();
+  } catch (e) {
+    alert("删除失败: " + e.message);
+  }
 }
 
 // Kickoff
