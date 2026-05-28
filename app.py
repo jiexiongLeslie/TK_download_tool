@@ -135,6 +135,30 @@ def api_export_history():
     )
 
 
+@app.route("/api/pick-dir")
+def api_pick_dir():
+    """打开 Windows 原生文件夹选择对话框，返回选中路径"""
+    import subprocess
+
+    # 使用 Shell.Application COM 对象，不依赖窗口句柄
+    ps_script = """
+$shell = New-Object -ComObject Shell.Application
+$folder = $shell.BrowseForFolder(0, "选择视频保存目录", 0, 0)
+if ($folder) { $folder.Self.Path } else { "" }
+"""
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True, text=True, timeout=60,
+        )
+        folder = result.stdout.strip()
+        if folder:
+            return jsonify({"folder": folder})
+        return jsonify({"folder": ""})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/open-dir", methods=["POST"])
 def api_open_dir():
     """在 Windows 资源管理器中打开下载目录"""

@@ -268,7 +268,8 @@ https://vm.tiktok.com/abcdef/
 "></textarea>
     <div class="dir-row">
       <span class="dir-label">📁 保存目录 <span style="color:var(--accent)">*必填</span>:</span>
-      <input type="text" class="dir-input" id="dirInput" placeholder="例: D:\Videos\TikTok  或  C:/Users/Administrator/Desktop/downloads" required>
+      <input type="text" class="dir-input" id="dirInput" placeholder="例: D:\Videos\TikTok" required>
+      <button class="btn btn-secondary" onclick="pickDirectory()" style="padding:8px 14px;font-size:12px;">📂 选择目录</button>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="btnDownload" onclick="startDownload()">
@@ -560,6 +561,19 @@ function showMoreFiles(count) {
 }
 
 function resetDir() {}
+
+// ========== Directory Picker ==========
+async function pickDirectory() {
+  try {
+    const res = await fetch("/api/pick-dir");
+    const data = await res.json();
+    if (data.folder) {
+      document.getElementById("dirInput").value = data.folder;
+    }
+  } catch (e) {
+    alert("打开目录选择器失败: " + e.message);
+  }
+}
 
 function renderFiles(files) {
   const container = document.getElementById("fileList");
