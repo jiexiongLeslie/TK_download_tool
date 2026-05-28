@@ -118,4 +118,4 @@ if __name__ == "__main__":
     print(f"  📱 局域网访问: http://{local_ip}:5000")
     print(f"  💡 提交后自动推送到 GitHub")
     print(f"  {'='*50}\n")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
