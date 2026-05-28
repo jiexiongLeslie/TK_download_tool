@@ -56,11 +56,11 @@ def api_download():
     if not urls:
         return jsonify({"error": "请至少输入一个有效的 TikTok 视频链接"}), 400
 
-    # 验证并创建保存目录
-    if save_dir:
-        target_dir = Path(save_dir)
-    else:
-        target_dir = DOWNLOADS_DIR
+    # 验证必填的保存目录
+    if not save_dir:
+        return jsonify({"error": "请填写保存目录路径"}), 400
+
+    target_dir = Path(save_dir)
 
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -185,10 +185,9 @@ def api_serve_video(job_id):
 def api_file_info():
     """获取已下载文件列表，支持指定目录"""
     dir_param = request.args.get("dir", "")
-    if dir_param:
-        search_dir = Path(dir_param)
-    else:
-        search_dir = DOWNLOADS_DIR
+    if not dir_param:
+        return jsonify({"files": [], "dir": "未设置"})
+    search_dir = Path(dir_param)
 
     files = []
     if search_dir.exists():

@@ -267,9 +267,8 @@ https://vm.tiktok.com/abcdef/
 ...
 "></textarea>
     <div class="dir-row">
-      <span class="dir-label">📁 保存目录:</span>
-      <input type="text" class="dir-input" id="dirInput" placeholder="留空则保存到默认目录 downloads/">
-      <button class="btn btn-secondary" onclick="resetDir()" style="padding:8px 14px;font-size:12px;">🔄 默认</button>
+      <span class="dir-label">📁 保存目录 <span style="color:var(--accent)">*必填</span>:</span>
+      <input type="text" class="dir-input" id="dirInput" placeholder="例: D:\Videos\TikTok  或  C:/Users/Administrator/Desktop/downloads" required>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="btnDownload" onclick="startDownload()">
@@ -343,9 +342,9 @@ function initDir() {
 // ========== Start Download ==========
 async function startDownload() {
   const input = document.getElementById("urlInput").value.trim();
-  if (!input) { alert("请粘贴至少一个 TikTok 视频链接"); return; }
-
   const saveDir = document.getElementById("dirInput").value.trim();
+  if (!input) { alert("请粘贴至少一个短视频链接"); return; }
+  if (!saveDir) { alert("请填写保存目录路径"); document.getElementById("dirInput").focus(); return; }
   const btn = document.getElementById("btnDownload");
 
   // Step 1: 检查是否已下载过
@@ -560,12 +559,7 @@ function showMoreFiles(count) {
   renderFiles(files);
 }
 
-function resetDir() {
-  document.getElementById("dirInput").value = "";
-  currentSaveDir = "";
-  localStorage.removeItem("tiktok_save_dir");
-  loadFiles();
-}
+function resetDir() {}
 
 function renderFiles(files) {
   const container = document.getElementById("fileList");
