@@ -372,12 +372,35 @@ def _get_local_ip() -> str:
 if __name__ == "__main__":
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     local_ip = _get_local_ip()
+
+    # HTTP → HTTPS 重定向服务
+    def run_http_redirect():
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        class RedirectHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                host = self.headers.get("Host", f"{local_ip}:5000").split(":")[0]
+                self.send_response(301)
+                self.send_header("Location", f"https://{host}:5000{self.path}")
+                self.end_headers()
+            def do_HEAD(self):
+                self.do_GET()
+            def do_POST(self):
+                host = self.headers.get("Host", f"{local_ip}:5000").split(":")[0]
+                self.send_response(307)
+                self.send_header("Location", f"https://{host}:5000{self.path}")
+                self.end_headers()
+            def log_message(self, *args): pass
+        httpd = HTTPServer(("0.0.0.0", 5080), RedirectHandler)
+        httpd.serve_forever()
+
+    threading.Thread(target=run_http_redirect, daemon=True).start()
+
     print(f"\n  {'='*50}")
     print(f"  🎬 短视频批量下载器 v1.3")
-    print(f"  📂 下载目录: {DOWNLOADS_DIR}")
-    print(f"  🔒 本机: https://127.0.0.1:5000")
+    print(f"  🔒 HTTPS: https://127.0.0.1:5000")
+    print(f"  🔄 HTTP:  http://{local_ip}:5080 → 自动跳转 HTTPS")
     print(f"  📱 远程: https://{local_ip}:5000")
-    print(f"  ⚠️ 远程首次访问需信任证书（高级/继续访问）")
+    print(f"  ⚠️ 远程首次需信任证书（高级/继续访问）")
     print(f"  {'='*50}\n")
     app.run(
         host="0.0.0.0",
