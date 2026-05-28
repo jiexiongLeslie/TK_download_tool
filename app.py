@@ -395,18 +395,23 @@ if __name__ == "__main__":
 
     threading.Thread(target=run_http_redirect, daemon=True).start()
 
+    from hypercorn.config import Config
+    from hypercorn.asyncio import serve as hc_serve
+    import asyncio
+
+    config = Config()
+    config.bind = ["0.0.0.0:5000"]
+    config.certfile = "certs/cert.pem"
+    config.keyfile = "certs/key.pem"
+    config.worker_class = "asyncio"
+    config.accesslog = "-"
+
     print(f"\n  {'='*50}")
-    print(f"  🎬 短视频批量下载器 v1.3")
+    print(f"  🎬 短视频批量下载器 v1.3 (hypercorn)")
     print(f"  🔒 HTTPS: https://127.0.0.1:5000")
     print(f"  🔄 HTTP:  http://{local_ip}:5080 → 自动跳转 HTTPS")
     print(f"  📱 远程: https://{local_ip}:5000")
     print(f"  ⚠️ 远程首次需信任证书（高级/继续访问）")
+    print(f"  👥 异步并发，支持多人同时使用")
     print(f"  {'='*50}\n")
-    app.run(
-        host="0.0.0.0",
-        port=5000,
-        debug=False,
-        threaded=True,
-        use_reloader=False,
-        ssl_context=("certs/cert.pem", "certs/key.pem"),
-    )
+    asyncio.run(hc_serve(app, config))
