@@ -377,7 +377,7 @@ if __name__ == "__main__":
     print(f"  📂 下载目录: {DOWNLOADS_DIR}")
     print(f"  🔒 本机访问: https://127.0.0.1:5000")
     print(f"  📱 远程访问: https://{local_ip}:5000")
-    print(f"  ⚠️ 首次使用需信任自签名证书（点击"高级 → 继续访问"）")
+    print(f"  ⚠️ 首次使用需信任自签名证书（高级 - 继续访问）")
     print(f"  {'='*50}\n")
     app.run(
         host="0.0.0.0",
