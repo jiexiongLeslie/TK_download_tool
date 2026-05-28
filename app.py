@@ -93,7 +93,7 @@ def api_download():
     proxy = "http://127.0.0.1:7897" if use_proxy else None
 
     def run_downloads():
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=8) as executor:
             futures = {executor.submit(download_video, url, str(target_dir), proxy): url for url in urls}
             for future in as_completed(futures):
                 result = future.result()
