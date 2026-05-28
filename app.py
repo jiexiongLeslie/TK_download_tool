@@ -97,7 +97,10 @@ def api_file_info():
 
 if __name__ == "__main__":
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"\n  🎬 TikTok 视频下载器已启动")
+    print(f"\n  {'='*50}")
+    print(f"  🎬 TikTok 视频批量下载器 v1.0")
     print(f"  📂 下载目录: {DOWNLOADS_DIR}")
-    print(f"  🌐 访问地址: http://127.0.0.1:5000\n")
+    print(f"  🌐 访问地址: http://127.0.0.1:5000")
+    print(f"  💡 提交后自动推送到 GitHub")
+    print(f"  {'='*50}\n")
     app.run(host="127.0.0.1", port=5000, debug=True)
