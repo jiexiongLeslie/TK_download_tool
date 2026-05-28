@@ -69,6 +69,26 @@ def _clean_filename(title: str, max_len: int = 80) -> str:
     return safe[:max_len].strip()
 
 
+def _unique_filepath(save_dir: Path, safe_title: str, job_id: str) -> Path:
+    """生成不冲突的文件名，已存在则添加序号"""
+    base = f"{safe_title}_{job_id}"
+    filepath = save_dir / f"{base}.mp4"
+    if not filepath.exists():
+        return filepath
+
+    # 文件已存在，尝试加序号
+    counter = 1
+    while True:
+        filepath = save_dir / f"{base}_{counter}.mp4"
+        if not filepath.exists():
+            return filepath
+        counter += 1
+        if counter > 99:  # 安全上限
+            suffix = str(abs(hash(str(counter))))[:6]
+            filepath = save_dir / f"{base}_{suffix}.mp4"
+            return filepath
+
+
 # ========== 方法一：tikwm.com API（主方案） ==========
 def _download_via_tikwm(url: str, save_dir: Path, job_id: str, proxy: str = None) -> dict:
     """通过 tikwm.com API 获取下载链接并下载"""
@@ -103,10 +123,10 @@ def _download_via_tikwm(url: str, save_dir: Path, job_id: str, proxy: str = None
         "title": title,
     })
 
-    # Step 2: 下载视频文件
+    # Step 2: 下载视频文件（避免覆盖已有文件）
     safe_title = _clean_filename(title)
-    filename = f"{safe_title}_{job_id}.mp4"
-    filepath = save_dir / filename
+    filepath = _unique_filepath(save_dir, safe_title, job_id)
+    filename = filepath.name
 
     dl_req = urllib.request.Request(video_url, headers={
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
@@ -165,6 +185,7 @@ def _download_via_ytdlp(url: str, save_dir: Path, job_id: str, proxy: str = None
         "format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
         "merge_output_format": "mp4",
         "noplaylist": True,
+        "overwrites": False,  # 不覆盖已有文件
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
             "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
@@ -240,11 +261,16 @@ def download_video(
         save_dir.mkdir(parents=True, exist_ok=True)
 
     job_id = extract_job_id(url)
-    _progress_store[job_id].update({
-        "url": url,
+    # 重置进度（避免同一视频重复下载时残留旧状态）
+    _progress_store[job_id] = {
         "status": "pending",
         "percent": 0,
-    })
+        "title": "",
+        "filename": "",
+        "filepath": "",
+        "error": "",
+        "url": url,
+    }
 
     methods = []
     if prefer_method == "tikwm":
