@@ -27,12 +27,24 @@ def api_download():
     """接收下载请求，异步执行"""
     data = request.get_json()
     urls_input = data.get("urls", "")
+    save_dir = data.get("save_dir", "")
 
     # 按行分割，过滤空行
     urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
 
     if not urls:
         return jsonify({"error": "请至少输入一个有效的 TikTok 视频链接"}), 400
+
+    # 验证并创建保存目录
+    if save_dir:
+        target_dir = Path(save_dir)
+    else:
+        target_dir = DOWNLOADS_DIR
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        return jsonify({"error": f"无法创建目录: {e}"}), 400
 
     jobs = []
     for url in urls:
@@ -42,12 +54,16 @@ def api_download():
     # 异步执行下载
     def run_downloads():
         for url in urls:
-            download_video(url)
+            download_video(url, save_dir=str(target_dir))
 
     thread = threading.Thread(target=run_downloads, daemon=True)
     thread.start()
 
-    return jsonify({"message": f"已提交 {len(urls)} 个下载任务", "jobs": jobs})
+    return jsonify({
+        "message": f"已提交 {len(urls)} 个下载任务",
+        "save_dir": str(target_dir),
+        "jobs": jobs,
+    })
 
 
 @app.route("/api/progress")
@@ -84,15 +100,22 @@ def api_serve_video(job_id):
 
 @app.route("/api/file")
 def api_file_info():
-    """获取已下载文件列表"""
+    """获取已下载文件列表，支持指定目录"""
+    dir_param = request.args.get("dir", "")
+    if dir_param:
+        search_dir = Path(dir_param)
+    else:
+        search_dir = DOWNLOADS_DIR
+
     files = []
-    for f in sorted(DOWNLOADS_DIR.glob("*.mp4"), key=lambda x: x.stat().st_mtime, reverse=True):
-        files.append({
-            "name": f.name,
-            "size": f.stat().st_size,
-            "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(f.stat().st_mtime)),
-        })
-    return jsonify({"files": files, "dir": str(DOWNLOADS_DIR)})
+    if search_dir.exists():
+        for f in sorted(search_dir.glob("*.mp4"), key=lambda x: x.stat().st_mtime, reverse=True):
+            files.append({
+                "name": f.name,
+                "size": f.stat().st_size,
+                "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(f.stat().st_mtime)),
+            })
+    return jsonify({"files": files, "dir": str(search_dir)})
 
 
 def _get_local_ip() -> str:

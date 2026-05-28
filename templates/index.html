@@ -76,6 +76,17 @@
   }
   textarea::placeholder { color: #555; }
 
+  .dir-row { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .dir-input {
+    flex: 1; min-width: 260px;
+    background: var(--card2); border: 2px solid var(--border);
+    border-radius: 8px; padding: 10px 14px;
+    color: var(--text); font-size: 14px; font-family: inherit;
+    transition: border-color 0.2s;
+  }
+  .dir-input:focus { outline: none; border-color: var(--accent2); }
+  .dir-label { font-size: 13px; color: var(--text2); white-space: nowrap; }
+
   .btn-row { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
   .btn {
     padding: 12px 24px;
@@ -217,6 +228,11 @@ https://www.tiktok.com/@username/video/1234567890123456789
 https://vm.tiktok.com/abcdef/
 ...
 "></textarea>
+    <div class="dir-row">
+      <span class="dir-label">📁 保存目录:</span>
+      <input type="text" class="dir-input" id="dirInput" placeholder="留空则保存到默认目录 downloads/">
+      <button class="btn btn-secondary" onclick="resetDir()" style="padding:8px 14px;font-size:12px;">🔄 默认</button>
+    </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="btnDownload" onclick="startDownload()">
         ⬇️ 开始下载
@@ -256,11 +272,29 @@ https://vm.tiktok.com/abcdef/
 // ========== State ==========
 let pollTimer = null;
 let jobMap = {};
+let currentSaveDir = "";
+
+// ========== Init ==========
+function initDir() {
+  // 从 localStorage 恢复上次目录
+  const saved = localStorage.getItem("tiktok_save_dir");
+  if (saved) {
+    currentSaveDir = saved;
+    document.getElementById("dirInput").value = saved;
+  }
+}
 
 // ========== Start Download ==========
 async function startDownload() {
   const input = document.getElementById("urlInput").value.trim();
   if (!input) { alert("请粘贴至少一个 TikTok 视频链接"); return; }
+
+  const saveDir = document.getElementById("dirInput").value.trim();
+  // 记住本次目录
+  if (saveDir) {
+    localStorage.setItem("tiktok_save_dir", saveDir);
+    currentSaveDir = saveDir;
+  }
 
   const btn = document.getElementById("btnDownload");
   btn.disabled = true;
@@ -270,7 +304,7 @@ async function startDownload() {
     const res = await fetch("/api/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ urls: input }),
+      body: JSON.stringify({ urls: input, save_dir: saveDir }),
     });
     const data = await res.json();
     if (data.error) { alert(data.error); btn.disabled = false; btn.textContent = "⬇️ 开始下载"; return; }
@@ -282,6 +316,8 @@ async function startDownload() {
 
     renderJobs();
     startPolling();
+    // 刷新文件列表
+    loadFiles();
   } catch (e) {
     alert("请求失败: " + e.message);
     btn.disabled = false;
@@ -399,7 +435,9 @@ function clearJobs() {
 
 // ========== Open folder ==========
 function openDownloads() {
-  fetch("/api/file").then(r => r.json()).then(d => {
+  const dir = currentSaveDir || "";
+  const url = dir ? `/api/file?dir=${encodeURIComponent(dir)}` : "/api/file";
+  fetch(url).then(r => r.json()).then(d => {
     renderFiles(d.files);
   });
 }
@@ -407,10 +445,19 @@ function openDownloads() {
 // ========== Files ==========
 async function loadFiles() {
   try {
-    const res = await fetch("/api/file");
+    const dir = currentSaveDir || "";
+    const url = dir ? `/api/file?dir=${encodeURIComponent(dir)}` : "/api/file";
+    const res = await fetch(url);
     const data = await res.json();
     renderFiles(data.files);
   } catch (e) {}
+}
+
+function resetDir() {
+  document.getElementById("dirInput").value = "";
+  currentSaveDir = "";
+  localStorage.removeItem("tiktok_save_dir");
+  loadFiles();
 }
 
 function renderFiles(files) {
@@ -441,6 +488,7 @@ function formatSize(bytes) {
 }
 
 // Kickoff
+initDir();
 loadFiles();
 </script>
 
