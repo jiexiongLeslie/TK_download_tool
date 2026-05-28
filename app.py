@@ -13,7 +13,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from downloader import download_video, get_progress, extract_job_id
-from history import check_duplicates, record_download, load_history
+from history import check_duplicates, record_download, load_history, all_history
+
+
+def _get_client_ip() -> str:
+    """获取客户端真实 IP"""
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.remote_addr or "unknown"
 
 app = Flask(__name__)
 CORS(app)
@@ -39,7 +47,8 @@ def api_download():
     data = request.get_json()
     urls_input = data.get("urls", "")
     save_dir = data.get("save_dir", "")
-    use_proxy = data.get("use_proxy", True)  # 新增：代理开关
+    use_proxy = data.get("use_proxy", True)
+    client_ip = _get_client_ip()
 
     # 按行分割，过滤空行
     urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
@@ -73,6 +82,7 @@ def api_download():
                 result = future.result()
                 if result["status"] == "done":
                     record_download(
+                        client_ip,
                         futures[future],
                         result["job_id"],
                         result["title"],
@@ -99,14 +109,14 @@ def api_check_duplicates():
     if not urls:
         return jsonify({"duplicates": [], "new": [], "total_history": 0})
 
-    result = check_duplicates(urls)
+    result = check_duplicates(_get_client_ip(), urls)
     return jsonify(result)
 
 
 @app.route("/api/history/export")
 def api_export_history():
-    """导出下载历史为 CSV"""
-    history = load_history()
+    """导出当前 IP 的下载历史为 CSV"""
+    history = load_history(_get_client_ip())
     if not history:
         return jsonify({"error": "暂无下载记录"}), 404
 
