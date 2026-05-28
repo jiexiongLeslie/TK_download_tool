@@ -6,6 +6,7 @@ TikTok 视频下载核心模块
 import os
 import re
 import json
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -31,6 +32,25 @@ def _build_opener(proxy: str = None):
         })
         return urllib.request.build_opener(proxy_handler)
     return urllib.request.build_opener()
+
+
+# ========== 重试配置 ==========
+MAX_RETRIES = 2       # 失败后最大重试次数
+RETRY_DELAY = 2        # 初始重试延迟（秒），每次翻倍
+
+
+def _retry_with_backoff(func, *args, **kwargs):
+    """带退避的重试执行"""
+    last_error = None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_error = str(e)
+            if attempt < MAX_RETRIES:
+                delay = RETRY_DELAY * (2 ** attempt)
+                time.sleep(delay)
+    raise Exception(f"重试 {MAX_RETRIES} 次后仍失败: {last_error}")
 
 
 # ========== 全局进度追踪 ==========
@@ -285,9 +305,9 @@ def download_video(
     for method in methods:
         try:
             if method == "tikwm":
-                return _download_via_tikwm(url, save_dir, job_id, proxy)
+                return _retry_with_backoff(_download_via_tikwm, url, save_dir, job_id, proxy)
             elif method == "ytdlp":
-                return _download_via_ytdlp(url, save_dir, job_id, proxy)
+                return _retry_with_backoff(_download_via_ytdlp, url, save_dir, job_id, proxy)
         except Exception as e:
             last_error = str(e)
             continue

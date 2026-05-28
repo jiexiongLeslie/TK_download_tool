@@ -6,6 +6,7 @@ import threading
 import time
 import json
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from downloader import download_video, get_progress, extract_job_id
@@ -58,13 +59,19 @@ def api_download():
         job_id = extract_job_id(url)
         jobs.append({"job_id": job_id, "url": url, "status": "queued"})
 
-    # 异步执行下载
+    # 并发下载（最多 3 个同时进行）
     def run_downloads():
-        for url in urls:
-            result = download_video(url, save_dir=str(target_dir))
-            # 记录到下载历史
-            if result["status"] == "done":
-                record_download(url, result["job_id"], result["title"], result["filepath"])
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {executor.submit(download_video, url, str(target_dir)): url for url in urls}
+            for future in as_completed(futures):
+                result = future.result()
+                if result["status"] == "done":
+                    record_download(
+                        futures[future],
+                        result["job_id"],
+                        result["title"],
+                        result["filepath"],
+                    )
 
     thread = threading.Thread(target=run_downloads, daemon=True)
     thread.start()

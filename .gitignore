@@ -4,3 +4,4 @@ __pycache__/
 .env
 .venv/
 *.mp4
+download_history.json
