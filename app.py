@@ -187,22 +187,22 @@ def api_progress_one(job_id):
 
 @app.route("/api/video/<job_id>")
 def api_serve_video(job_id):
-    """提供视频文件下载/播放"""
-    progress = get_progress(job_id)
-    if not progress or progress.get("status") != "done":
-        return jsonify({"error": "视频尚未下载完成"}), 404
+    """提供视频文件下载/播放（直接从磁盘查找，不依赖内存记录）"""
+    filename = request.args.get("name", "")
+    save_dir = request.args.get("dir", "")
+    search_dir = Path(save_dir) if save_dir else DOWNLOADS_DIR
 
-    filepath = progress.get("filepath", "")
-    path = Path(filepath)
-    if not path.exists():
-        return jsonify({"error": "文件不存在"}), 404
+    # 先按完整文件名查找
+    if filename and filename.endswith(".mp4"):
+        path = search_dir / filename
+        if path.exists():
+            return send_file(path, mimetype="video/mp4", as_attachment=False)
 
-    return send_file(
-        path,
-        mimetype="video/mp4",
-        as_attachment=True,
-        download_name=path.name,
-    )
+    # 回退：按 job_id 模糊匹配（兼容旧链接）
+    for f in search_dir.glob(f"*{job_id}*.mp4"):
+        return send_file(f, mimetype="video/mp4", as_attachment=False)
+
+    return jsonify({"error": "文件不存在"}), 404
 
 
 @app.route("/api/file")

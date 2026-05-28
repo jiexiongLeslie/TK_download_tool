@@ -701,9 +701,10 @@ async function deleteFile(filename) {
 // ========== Video Modal ==========
 function playVideo(filename) {
   const jobId = filename.replace(/\.mp4$/, "");
+  const dir = currentSaveDir || "";
   const modal = document.getElementById("videoModal");
   const video = document.getElementById("modalVideo");
-  video.src = `/api/video/${jobId}`;
+  video.src = `/api/video/${jobId}?name=${encodeURIComponent(filename)}&dir=${encodeURIComponent(dir)}`;
   modal.classList.add("active");
   video.play();
 }
