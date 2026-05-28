@@ -4,6 +4,7 @@ TikTok 视频批量下载器 - Flask Web 应用
 
 import csv
 import io
+import os
 import threading
 import time
 import json
@@ -122,6 +123,20 @@ def api_export_history():
         as_attachment=True,
         download_name=f"tiktok_download_{time.strftime('%Y%m%d_%H%M%S')}.csv",
     )
+
+
+@app.route("/api/open-dir", methods=["POST"])
+def api_open_dir():
+    """在 Windows 资源管理器中打开下载目录"""
+    data = request.get_json()
+    dir_param = data.get("dir", "")
+    target = Path(dir_param) if dir_param else DOWNLOADS_DIR
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        os.startfile(str(target))
+        return jsonify({"message": f"已打开 {target}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/progress")

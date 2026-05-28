@@ -525,9 +525,16 @@ function clearJobs() {
 // ========== Open folder ==========
 function openDownloads() {
   const dir = currentSaveDir || "";
+  // 刷新文件列表
   const url = dir ? `/api/file?dir=${encodeURIComponent(dir)}` : "/api/file";
   fetch(url).then(r => r.json()).then(d => {
     renderFiles(d.files);
+  });
+  // 打开文件夹
+  fetch("/api/open-dir", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dir }),
   });
 }
 
