@@ -373,10 +373,16 @@ if __name__ == "__main__":
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     local_ip = _get_local_ip()
     print(f"\n  {'='*50}")
-    print(f"  🎬 短视频批量下载器 v1.2")
+    print(f"  🎬 短视频批量下载器 v1.3")
     print(f"  📂 下载目录: {DOWNLOADS_DIR}")
-    print(f"  🌐 本机访问: http://127.0.0.1:5000")
-    print(f"  📱 局域网访问: http://{local_ip}:5000")
-    print(f"  💡 提交后自动推送到 GitHub")
+    print(f"  🔒 本机访问: https://127.0.0.1:5000")
+    print(f"  📱 远程访问: https://{local_ip}:5000")
+    print(f"  ⚠️ 首次使用需信任自签名证书（点击"高级 → 继续访问"）")
     print(f"  {'='*50}\n")
-    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=True,
+        use_reloader=False,
+        ssl_context=("certs/cert.pem", "certs/key.pem"),
+    )

@@ -5,3 +5,4 @@ __pycache__/
 .venv/
 *.mp4
 download_history.json
+certs/*.pem
