@@ -319,9 +319,9 @@ https://vm.tiktok.com/abcdef/
 ...
 "></textarea>
     <div class="dir-row">
-      <span class="dir-label">📁 保存目录 <span style="color:var(--accent)">*必填</span>:</span>
-      <input type="text" class="dir-input" id="dirInput" placeholder="例: D:\Videos\TikTok" required>
-      <button class="btn btn-secondary" onclick="pickDirectory()" style="padding:8px 14px;font-size:12px;">📂 选择目录</button>
+      <span class="dir-label" id="dirLabelHeader">📁 保存目录 <span style="color:var(--accent)">*必填</span>:</span>
+      <input type="text" class="dir-input" id="dirInput" placeholder="例: D:\Videos\TikTok（服务器路径）" required>
+      <button class="btn btn-secondary" id="btnPickDir" onclick="pickDirectory()" style="padding:8px 14px;font-size:12px;">📂 选择目录</button>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="btnDownload" onclick="startDownload()">
@@ -397,6 +397,12 @@ function initDir() {
   if (saved) {
     currentSaveDir = saved;
     document.getElementById("dirInput").value = saved;
+  }
+  // 远程访问提示
+  if (!isLocalClient) {
+    document.getElementById("dirLabelHeader").innerHTML = '🖥️ 服务器保存目录 <span style="color:var(--accent)">*必填</span>:';
+    document.getElementById("btnPickDir").style.display = "none";
+    document.getElementById("dirInput").placeholder = "服务器路径，例: D:\\Downloads";
   }
 }
 
@@ -658,7 +664,24 @@ async function clearHistory() {
 }
 
 // ========== Directory Picker ==========
+let isLocalClient = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
 async function pickDirectory() {
+  // 非本机访问：使用浏览器原生选择器（运行在客户端设备上）
+  if (!isLocalClient) {
+    if ("showDirectoryPicker" in window) {
+      try {
+        const handle = await window.showDirectoryPicker();
+        document.getElementById("dirInput").value = handle.name;
+        document.getElementById("dirInput").focus();
+        return;
+      } catch (e) { /* 用户取消或不支持 */ }
+    }
+    alert("远程访问时，请手动输入服务器上的保存路径。\n\n文件将先下载到服务器，再传输到你的设备。");
+    return;
+  }
+
+  // 本机访问：使用服务器端 PowerShell 选择器
   try {
     const res = await fetch("/api/pick-dir");
     const data = await res.json();
