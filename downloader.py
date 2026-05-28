@@ -1,6 +1,7 @@
 """
-TikTok 视频下载核心模块
-优先使用 tikwm.com API（无需登录，已验证可行），yt-dlp 作为备选方案
+TikTok / 多平台视频下载核心模块
+TikTok: tikwm.com API（无需登录）
+其他平台: yt-dlp（YouTube Shorts / Instagram Reels / Bilibili 等）
 """
 
 import os
@@ -73,14 +74,51 @@ def get_progress(job_id: str = None):
 
 
 def extract_job_id(url: str) -> str:
-    """从 TikTok URL 提取视频 ID"""
+    """从 URL 提取视频 ID"""
+    # TikTok
     m = re.search(r"/(video|photo|t)/(\d+)", url)
     if m:
         return m.group(2)
     m = re.search(r"vm\.tiktok\.com/(\w+)", url)
     if m:
         return m.group(1)
+    # Instagram Reel
+    m = re.search(r"instagram\.com/(reel|p)/([\w-]+)", url)
+    if m:
+        return f"ig_{m.group(2)}"
+    # YouTube Shorts
+    m = re.search(r"youtube\.com/shorts/([\w-]+)", url)
+    if m:
+        return f"yt_{m.group(1)}"
+    # YouTube 普通视频
+    m = re.search(r"[?&]v=([\w-]+)", url)
+    if m:
+        return f"yt_{m.group(1)}"
+    m = re.search(r"youtu\.be/([\w-]+)", url)
+    if m:
+        return f"yt_{m.group(1)}"
+    # Bilibili
+    m = re.search(r"bilibili\.com/video/(BV[\w]+)", url)
+    if m:
+        return f"bili_{m.group(1)}"
+    # 通用 fallback
     return str(abs(hash(url)))[:12]
+
+
+def detect_platform(url: str) -> str:
+    """自动识别视频平台"""
+    url_lower = url.lower()
+    if "tiktok.com" in url_lower:
+        return "tiktok"
+    if "instagram.com" in url_lower:
+        return "instagram"
+    if "youtube.com" in url_lower or "youtu.be" in url_lower:
+        return "youtube"
+    if "bilibili.com" in url_lower:
+        return "bilibili"
+    if "twitter.com" in url_lower or "x.com" in url_lower:
+        return "twitter"
+    return "unknown"
 
 
 def _clean_filename(title: str, max_len: int = 80) -> str:
@@ -292,13 +330,17 @@ def download_video(
         "url": url,
     }
 
+    # 智能平台路由
+    platform = detect_platform(url)
     methods = []
-    if prefer_method == "tikwm":
-        methods = ["tikwm", "ytdlp"]
-    elif prefer_method == "ytdlp":
-        methods = ["ytdlp", "tikwm"]
+
+    if platform == "tiktok":
+        methods = ["tikwm", "ytdlp"]  # TikTok: tikwm API 优先
     else:
-        methods = ["tikwm", "ytdlp"]
+        methods = ["ytdlp"]           # 其他平台: 直接用 yt-dlp
+        if platform == "unknown":
+            # 未知平台也用 yt-dlp 尝试
+            pass
 
     last_error = None
 

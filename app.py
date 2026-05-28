@@ -220,7 +220,7 @@ if __name__ == "__main__":
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     local_ip = _get_local_ip()
     print(f"\n  {'='*50}")
-    print(f"  🎬 TikTok 视频批量下载器 v1.0")
+    print(f"  🎬 短视频批量下载器 v1.2")
     print(f"  📂 下载目录: {DOWNLOADS_DIR}")
     print(f"  🌐 本机访问: http://127.0.0.1:5000")
     print(f"  📱 局域网访问: http://{local_ip}:5000")
