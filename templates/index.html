@@ -270,7 +270,7 @@ https://vm.tiktok.com/abcdef/
 
   <!-- Downloaded Files -->
   <div class="card">
-    <h3>📂 已下载文件</h3>
+    <h3>📂 已下载文件 <span id="dirLabel" style="font-weight:400;font-size:12px;color:var(--text2)">— 默认目录</span></h3>
     <div class="files-grid" id="fileList">
       <div class="empty-state">
         <div class="icon">📦</div>
@@ -302,11 +302,6 @@ async function startDownload() {
   if (!input) { alert("请粘贴至少一个 TikTok 视频链接"); return; }
 
   const saveDir = document.getElementById("dirInput").value.trim();
-  // 记住本次目录
-  if (saveDir) {
-    localStorage.setItem("tiktok_save_dir", saveDir);
-    currentSaveDir = saveDir;
-  }
 
   const btn = document.getElementById("btnDownload");
   btn.disabled = true;
@@ -320,6 +315,13 @@ async function startDownload() {
     });
     const data = await res.json();
     if (data.error) { alert(data.error); btn.disabled = false; btn.textContent = "⬇️ 开始下载"; return; }
+
+    // 以服务端返回的实际目录为准
+    if (data.save_dir) {
+      currentSaveDir = data.save_dir;
+      localStorage.setItem("tiktok_save_dir", data.save_dir);
+      document.getElementById("dirInput").value = data.save_dir;
+    }
 
     // Init job map
     (data.jobs || []).forEach(j => {
@@ -347,6 +349,7 @@ function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   document.getElementById("btnDownload").disabled = false;
   document.getElementById("btnDownload").textContent = "⬇️ 开始下载";
+  loadFiles();  // 下载完成后自动刷新文件列表
 }
 
 async function pollProgress() {
@@ -461,6 +464,11 @@ async function loadFiles() {
     const url = dir ? `/api/file?dir=${encodeURIComponent(dir)}` : "/api/file";
     const res = await fetch(url);
     const data = await res.json();
+    // 更新目录标签
+    const label = document.getElementById("dirLabel");
+    if (label) {
+      label.textContent = data.dir ? `— ${data.dir}` : "— 默认目录";
+    }
     renderFiles(data.files);
   } catch (e) {}
 }
