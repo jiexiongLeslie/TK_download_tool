@@ -171,7 +171,8 @@ def _download_via_tikwm(url: str, save_dir: Path, job_id: str, proxy: str = None
 
     video_info = data["data"]
     title = video_info.get("title", "untitled")
-    video_url = video_info.get("wmplay") or video_info.get("play")  # 优先无水印
+    # 无水印优先：hdplay(高清) > play(标清)，避开 wmplay(水印)
+    video_url = video_info.get("hdplay") or video_info.get("play")
 
     if not video_url:
         raise Exception("未找到视频下载链接")

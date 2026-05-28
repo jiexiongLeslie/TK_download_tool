@@ -166,7 +166,7 @@ def api_stream_download():
         return jsonify({"error": api_data.get("msg", "解析失败")}), 500
 
     video_info = api_data["data"]
-    video_url = video_info.get("wmplay") or video_info.get("play")
+    video_url = video_info.get("hdplay") or video_info.get("play")
     title = video_info.get("title", "video")
 
     if not video_url:
