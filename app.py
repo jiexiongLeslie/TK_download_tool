@@ -95,12 +95,27 @@ def api_file_info():
     return jsonify({"files": files, "dir": str(DOWNLOADS_DIR)})
 
 
+def _get_local_ip() -> str:
+    """获取本机局域网 IP"""
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "无法获取"
+
+
 if __name__ == "__main__":
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    local_ip = _get_local_ip()
     print(f"\n  {'='*50}")
     print(f"  🎬 TikTok 视频批量下载器 v1.0")
     print(f"  📂 下载目录: {DOWNLOADS_DIR}")
-    print(f"  🌐 访问地址: http://127.0.0.1:5000")
+    print(f"  🌐 本机访问: http://127.0.0.1:5000")
+    print(f"  📱 局域网访问: http://{local_ip}:5000")
     print(f"  💡 提交后自动推送到 GitHub")
     print(f"  {'='*50}\n")
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
