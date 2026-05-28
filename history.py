@@ -69,9 +69,9 @@ def record_download(ip: str, url: str, job_id: str, title: str, filepath: str = 
     _save_all(all_history)
 
 
-def check_duplicates(ip: str, urls: list[str]) -> dict:
+def check_duplicates(ip: str, urls: list[str], save_dir: str = "") -> dict:
     """
-    检查 URL 是否已被该 IP 下载过
+    检查 URL 是否已被该 IP 下载过，且文件仍存在于磁盘
     返回: {"duplicates": [...], "new": [...]}
     """
     history = load_history(ip)
@@ -79,9 +79,19 @@ def check_duplicates(ip: str, urls: list[str]) -> dict:
     new_urls = []
 
     for url in urls:
-        if url in history:
+        if url in history and _file_still_exists(history[url].get("filepath", "")):
             duplicates.append({"url": url, "record": history[url]})
         else:
             new_urls.append(url)
 
     return {"duplicates": duplicates, "new": new_urls, "total_history": len(history)}
+
+
+def _file_still_exists(filepath: str) -> bool:
+    """检查文件是否仍在磁盘上"""
+    if not filepath:
+        return False
+    try:
+        return Path(filepath).is_file()
+    except Exception:
+        return False

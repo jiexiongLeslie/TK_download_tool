@@ -415,7 +415,7 @@ async function startDownload() {
     const checkRes = await fetch("/api/download/check", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ urls: input }),
+      body: JSON.stringify({ urls: input, save_dir: saveDir }),
     });
     const checkData = await checkRes.json();
     const dupes = checkData.duplicates || [];

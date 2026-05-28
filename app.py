@@ -101,15 +101,16 @@ def api_download():
 
 @app.route("/api/download/check", methods=["POST"])
 def api_check_duplicates():
-    """检查链接是否已下载过"""
+    """检查链接是否已下载过（文件仍存在磁盘才算重复）"""
     data = request.get_json()
     urls_input = data.get("urls", "")
+    save_dir = data.get("save_dir", "")
     urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
 
     if not urls:
         return jsonify({"duplicates": [], "new": [], "total_history": 0})
 
-    result = check_duplicates(_get_client_ip(), urls)
+    result = check_duplicates(_get_client_ip(), urls, save_dir)
     return jsonify(result)
 
 
