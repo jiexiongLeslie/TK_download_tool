@@ -502,6 +502,10 @@ async function pollProgress() {
     let allDone = true;
     for (const [id, p] of Object.entries(progress)) {
       if (p.status !== "done" && p.status !== "error") allDone = false;
+      // 自动下载到客户端设备
+      if (p.status === "done" && jobMap[id] && jobMap[id].status !== "done") {
+        autoDownloadToClient(id);
+      }
       jobMap[id] = { ...jobMap[id], ...p };
     }
     renderJobs();
@@ -629,6 +633,25 @@ function showMoreFiles(count) {
 }
 
 function resetDir() {}
+
+// ========== Auto-download to client ==========
+async function autoDownloadToClient(jobId) {
+  try {
+    const j = jobMap[jobId];
+    const filename = j.filename || `${jobId}.mp4`;
+    const resp = await fetch(`/api/video/${jobId}?name=${encodeURIComponent(filename)}&dir=${encodeURIComponent(currentSaveDir)}`);
+    if (!resp.ok) return;
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) { console.error("auto-download failed:", e); }
+}
 
 // ========== Collapsible Files ==========
 let filesExpanded = false;
