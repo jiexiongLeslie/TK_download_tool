@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TikTok 视频批量下载器</title>
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --card: #1a1a2e;
+    --card2: #16213e;
+    --accent: #fe2c55;
+    --accent2: #20d5ec;
+    --text: #e0e0e0;
+    --text2: #a0a0a0;
+    --border: #2a2a4a;
+    --success: #20d57c;
+    --warn: #f0a020;
+    --radius: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  .container { max-width: 960px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  /* Header */
+  .header {
+    text-align: center; padding: 40px 0 32px;
+  }
+  .header .logo {
+    font-size: 48px; margin-bottom: 8px;
+  }
+  .header h1 {
+    font-size: 28px; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .header p { color: var(--text2); margin-top: 8px; font-size: 14px; }
+
+  /* Card */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card h3 {
+    font-size: 16px; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  /* URL Input */
+  textarea {
+    width: 100%; min-height: 120px;
+    background: var(--card2);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color 0.2s;
+  }
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  textarea::placeholder { color: #555; }
+
+  .btn-row { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+  .btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #ff4d6a);
+    color: #fff;
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(254,44,85,0.35); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-secondary {
+    background: var(--card2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--accent2); }
+
+  /* Job List */
+  .job-list { display: flex; flex-direction: column; gap: 10px; }
+  .job-item {
+    background: var(--card2);
+    border-radius: 10px;
+    padding: 16px 20px;
+    display: flex; align-items: center; gap: 14px;
+    border: 1px solid transparent;
+    transition: border-color 0.3s;
+  }
+  .job-item.done { border-color: var(--success); }
+  .job-item.error { border-color: var(--accent); }
+
+  .job-icon { font-size: 28px; flex-shrink: 0; }
+  .job-info { flex: 1; min-width: 0; }
+  .job-info .title {
+    font-size: 14px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .job-info .meta { font-size: 12px; color: var(--text2); margin-top: 2px; }
+
+  .progress-wrap { width: 100px; flex-shrink: 0; }
+  .progress-bar {
+    height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; background: var(--accent2);
+    border-radius: 3px; transition: width 0.3s;
+  }
+  .progress-wrap .pct { font-size: 11px; color: var(--text2); text-align: right; margin-top: 3px; }
+
+  .job-actions { display: flex; gap: 6px; }
+  .job-actions a {
+    padding: 6px 12px; border-radius: 6px; font-size: 12px;
+    font-weight: 600; text-decoration: none; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-dl {
+    background: var(--success); color: #000;
+  }
+  .btn-dl:hover { opacity: 0.85; }
+
+  .status-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 600;
+  }
+  .status-badge.done { background: rgba(32,213,124,0.15); color: var(--success); }
+  .status-badge.error { background: rgba(254,44,85,0.15); color: var(--accent); }
+  .status-badge.downloading { background: rgba(32,213,236,0.15); color: var(--accent2); }
+  .status-badge.pending { background: rgba(160,160,160,0.15); color: var(--text2); }
+
+  .empty-state { text-align: center; padding: 40px; color: var(--text2); }
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+  /* Files Section */
+  .files-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .file-card {
+    background: var(--card2); border-radius: 10px;
+    padding: 14px; border: 1px solid var(--border);
+  }
+  .file-card .fname {
+    font-size: 13px; font-weight: 600; word-break: break-all;
+    margin-bottom: 8px; line-height: 1.4;
+  }
+  .file-card .finfo { font-size: 11px; color: var(--text2); display: flex; justify-content: space-between; }
+  .file-card .fdl {
+    margin-top: 10px; display: block; text-align: center;
+    padding: 7px; background: var(--accent); color: #fff;
+    border-radius: 6px; text-decoration: none; font-size: 12px; font-weight: 600;
+    transition: opacity 0.15s;
+  }
+  .file-card .fdl:hover { opacity: 0.85; }
+
+  .stats {
+    display: flex; gap: 24px; margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 24px; flex: 1;
+    text-align: center;
+  }
+  .stat .num { font-size: 32px; font-weight: 700; }
+  .stat .num.done-c { color: var(--success); }
+  .stat .num.error-c { color: var(--accent); }
+  .stat .label { font-size: 12px; color: var(--text2); margin-top: 4px; }
+
+  @media (max-width: 640px) {
+    .job-item { flex-wrap: wrap; }
+    .progress-wrap { width: 100%; order: 3; }
+    .stats { flex-direction: column; gap: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <div class="logo">🎬</div>
+    <h1>TikTok 视频批量下载器</h1>
+    <p>粘贴多个 TikTok 视频链接，一键批量下载到本地</p>
+  </div>
+
+  <!-- Statistics -->
+  <div class="stats" id="statsBar" style="display:none">
+    <div class="stat"><div class="num" id="statTotal">0</div><div class="label">全部任务</div></div>
+    <div class="stat"><div class="num done-c" id="statDone">0</div><div class="label">已完成</div></div>
+    <div class="stat"><div class="num error-c" id="statError">0</div><div class="label">失败</div></div>
+  </div>
+
+  <!-- Input Card -->
+  <div class="card">
+    <h3>📎 粘贴视频链接（每行一个）</h3>
+    <textarea id="urlInput" placeholder="https://www.tiktok.com/@sunlu_us_online/video/7642707869439102239
+https://www.tiktok.com/@username/video/1234567890123456789
+https://vm.tiktok.com/abcdef/
+...
+"></textarea>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btnDownload" onclick="startDownload()">
+        ⬇️ 开始下载
+      </button>
+      <button class="btn btn-secondary" onclick="clearJobs()">🗑️ 清空列表</button>
+      <button class="btn btn-secondary" onclick="openDownloads()">📁 打开下载目录</button>
+    </div>
+    <p style="font-size:12px;color:var(--text2);margin-top:10px">
+      💡 支持 tiktok.com 完整链接和 vm.tiktok.com 短链接，每个视频自动以 <code>标题_ID.mp4</code> 格式保存
+    </p>
+  </div>
+
+  <!-- Job Progress -->
+  <div class="card">
+    <h3>📊 下载进度</h3>
+    <div class="job-list" id="jobList">
+      <div class="empty-state">
+        <div class="icon">📭</div>
+        <p>粘贴链接后点击「开始下载」</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Downloaded Files -->
+  <div class="card">
+    <h3>📂 已下载文件</h3>
+    <div class="files-grid" id="fileList">
+      <div class="empty-state">
+        <div class="icon">📦</div>
+        <p>暂无已下载文件</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== State ==========
+let pollTimer = null;
+let jobMap = {};
+
+// ========== Start Download ==========
+async function startDownload() {
+  const input = document.getElementById("urlInput").value.trim();
+  if (!input) { alert("请粘贴至少一个 TikTok 视频链接"); return; }
+
+  const btn = document.getElementById("btnDownload");
+  btn.disabled = true;
+  btn.textContent = "⏳ 提交中...";
+
+  try {
+    const res = await fetch("/api/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls: input }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); btn.disabled = false; btn.textContent = "⬇️ 开始下载"; return; }
+
+    // Init job map
+    (data.jobs || []).forEach(j => {
+      jobMap[j.job_id] = { ...j, title: "准备中...", percent: 0 };
+    });
+
+    renderJobs();
+    startPolling();
+  } catch (e) {
+    alert("请求失败: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "⬇️ 开始下载";
+  }
+}
+
+// ========== Polling ==========
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(pollProgress, 800);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  document.getElementById("btnDownload").disabled = false;
+  document.getElementById("btnDownload").textContent = "⬇️ 开始下载";
+}
+
+async function pollProgress() {
+  try {
+    const res = await fetch("/api/progress");
+    const progress = await res.json();
+
+    let allDone = true;
+    for (const [id, p] of Object.entries(progress)) {
+      if (p.status !== "done" && p.status !== "error") allDone = false;
+      jobMap[id] = { ...jobMap[id], ...p };
+    }
+    renderJobs();
+    if (allDone && Object.keys(jobMap).length > 0) stopPolling();
+  } catch (e) { console.error(e); }
+}
+
+// ========== Render ==========
+function renderJobs() {
+  const container = document.getElementById("jobList");
+  const ids = Object.keys(jobMap);
+
+  if (ids.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>粘贴链接后点击「开始下载」</p></div>';
+    document.getElementById("statsBar").style.display = "none";
+    return;
+  }
+
+  let html = "";
+  let done = 0, err = 0;
+
+  ids.forEach(id => {
+    const j = jobMap[id];
+    const status = j.status || "pending";
+    if (status === "done") done++;
+    if (status === "error") err++;
+
+    let icon = "⏳";
+    if (status === "downloading") icon = "⬇️";
+    else if (status === "done") icon = "✅";
+    else if (status === "error") icon = "❌";
+
+    let badge = "";
+    if (status === "done") badge = '<span class="status-badge done">完成</span>';
+    else if (status === "error") badge = '<span class="status-badge error">失败</span>';
+    else if (status === "downloading") badge = '<span class="status-badge downloading">下载中</span>';
+    else badge = '<span class="status-badge pending">排队中</span>';
+
+    const pct = Math.round(j.percent || 0);
+    const title = j.title || j.url || id;
+
+    html += `
+      <div class="job-item ${status}">
+        <div class="job-icon">${icon}</div>
+        <div class="job-info">
+          <div class="title">${esc(title)}</div>
+          <div class="meta">
+            ${status === "error" ? esc(j.error || "未知错误") : `ID: ${id}`}
+            ${j.speed && status === "downloading" ? ` · ${j.speed}` : ""}
+          </div>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress-bar">
+            <div class="progress-fill" style="width:${pct}%"></div>
+          </div>
+          <div class="pct">${pct}%</div>
+        </div>
+        <div class="job-actions">
+          ${badge}
+          ${status === "done" ? `<a class="btn-dl" href="/api/video/${id}" download>⬇️ 下载</a>` : ""}
+        </div>
+      </div>`;
+  });
+
+  container.innerHTML = html;
+
+  // Stats
+  document.getElementById("statsBar").style.display = "flex";
+  document.getElementById("statTotal").textContent = ids.length;
+  document.getElementById("statDone").textContent = done;
+  document.getElementById("statError").textContent = err;
+}
+
+function esc(s) {
+  const div = document.createElement("div");
+  div.textContent = s || "";
+  return div.innerHTML;
+}
+
+// ========== Clear ==========
+function clearJobs() {
+  if (!confirm("确认清空所有下载记录？")) return;
+  jobMap = {};
+  stopPolling();
+  renderJobs();
+  document.getElementById("urlInput").value = "";
+}
+
+// ========== Open folder ==========
+function openDownloads() {
+  fetch("/api/file").then(r => r.json()).then(d => {
+    renderFiles(d.files);
+  });
+}
+
+// ========== Files ==========
+async function loadFiles() {
+  try {
+    const res = await fetch("/api/file");
+    const data = await res.json();
+    renderFiles(data.files);
+  } catch (e) {}
+}
+
+function renderFiles(files) {
+  const container = document.getElementById("fileList");
+  if (!files || files.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="icon">📦</div><p>暂无已下载文件</p></div>';
+    return;
+  }
+
+  container.innerHTML = files.map(f => `
+    <div class="file-card">
+      <div class="fname">${esc(f.name)}</div>
+      <div class="finfo">
+        <span>${formatSize(f.size)}</span>
+        <span>${f.mtime}</span>
+      </div>
+      <a class="fdl" href="/api/video/${f.name.replace(/\.mp4$/,'')}" download>⬇️ 下载</a>
+    </div>
+  `).join("");
+}
+
+function formatSize(bytes) {
+  if (!bytes) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0, s = bytes;
+  while (s >= 1024 && i < units.length - 1) { s /= 1024; i++; }
+  return s.toFixed(1) + " " + units[i];
+}
+
+// Kickoff
+loadFiles();
+</script>
+
+</body>
+</html>
