@@ -1,0 +1,32 @@
+@echo off
+chcp 65001 >nul
+title TikTok 视频批量下载器
+
+cd /d "%~dp0"
+
+echo.
+echo   ==================================================
+echo   🎬 TikTok 视频批量下载器 v1.0
+echo   ==================================================
+echo.
+echo   正在启动服务...
+
+:: 启动 Flask
+start /B python app.py > nul 2>&1
+
+:: 等待服务就绪
+echo   等待服务就绪...
+timeout /t 3 /nobreak > nul
+
+:: 打开浏览器
+echo   正在打开浏览器...
+start http://127.0.0.1:5000
+
+echo.
+echo   ✅ 服务已启动!
+echo   🌐 本机访问: http://127.0.0.1:5000
+echo   📱 局域网访问: http://<你的IP>:5000
+echo.
+echo   关闭此窗口将停止服务。
+echo.
+pause

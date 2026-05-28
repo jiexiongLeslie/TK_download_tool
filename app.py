@@ -2,6 +2,8 @@
 TikTok 视频批量下载器 - Flask Web 应用
 """
 
+import csv
+import io
 import threading
 import time
 import json
@@ -36,6 +38,7 @@ def api_download():
     data = request.get_json()
     urls_input = data.get("urls", "")
     save_dir = data.get("save_dir", "")
+    use_proxy = data.get("use_proxy", True)  # 新增：代理开关
 
     # 按行分割，过滤空行
     urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
@@ -60,9 +63,11 @@ def api_download():
         jobs.append({"job_id": job_id, "url": url, "status": "queued"})
 
     # 并发下载（最多 3 个同时进行）
+    proxy = "http://127.0.0.1:7897" if use_proxy else None
+
     def run_downloads():
         with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {executor.submit(download_video, url, str(target_dir)): url for url in urls}
+            futures = {executor.submit(download_video, url, str(target_dir), proxy): url for url in urls}
             for future in as_completed(futures):
                 result = future.result()
                 if result["status"] == "done":
@@ -95,6 +100,28 @@ def api_check_duplicates():
 
     result = check_duplicates(urls)
     return jsonify(result)
+
+
+@app.route("/api/history/export")
+def api_export_history():
+    """导出下载历史为 CSV"""
+    history = load_history()
+    if not history:
+        return jsonify({"error": "暂无下载记录"}), 404
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["下载时间", "视频标题", "视频链接", "文件路径"])
+    for item in sorted(history.values(), key=lambda x: x.get("time", ""), reverse=True):
+        writer.writerow([item["time"], item["title"], item["url"], item["filepath"]])
+
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode("utf-8-sig")),
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=f"tiktok_download_{time.strftime('%Y%m%d_%H%M%S')}.csv",
+    )
 
 
 @app.route("/api/progress")

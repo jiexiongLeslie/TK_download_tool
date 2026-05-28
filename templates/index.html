@@ -209,6 +209,23 @@
   .stat .num.error-c { color: var(--accent); }
   .stat .label { font-size: 12px; color: var(--text2); margin-top: 4px; }
 
+  /* Proxy Toggle */
+  .proxy-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .proxy-toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+  .proxy-toggle input { display: none; }
+  .proxy-toggle .slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--border); border-radius: 24px; cursor: pointer; transition: 0.2s; }
+  .proxy-toggle .slider::before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+  .proxy-toggle input:checked + .slider { background: var(--accent2); }
+  .proxy-toggle input:checked + .slider::before { transform: translateX(20px); }
+  .proxy-label { font-size: 12px; color: var(--text2); }
+
+  /* Video Modal */
+  .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 1000; justify-content: center; align-items: center; }
+  .modal-overlay.active { display: flex; }
+  .modal-content { position: relative; width: 90%; max-width: 640px; }
+  .modal-content video { width: 100%; border-radius: 12px; }
+  .modal-close { position: absolute; top: -40px; right: 0; background: none; border: none; color: #fff; font-size: 28px; cursor: pointer; }
+
   @media (max-width: 640px) {
     .job-item { flex-wrap: wrap; }
     .progress-wrap { width: 100%; order: 3; }
@@ -255,6 +272,13 @@ https://vm.tiktok.com/abcdef/
     <p style="font-size:12px;color:var(--text2);margin-top:10px">
       💡 支持 tiktok.com 完整链接和 vm.tiktok.com 短链接，每个视频自动以 <code>标题_ID.mp4</code> 格式保存
     </p>
+    <div class="proxy-row">
+      <label class="proxy-toggle">
+        <input type="checkbox" id="proxyToggle" checked onchange="toggleProxy()">
+        <span class="slider"></span>
+      </label>
+      <span class="proxy-label" id="proxyLabel">🛡️ 代理已开启 (127.0.0.1:7897)</span>
+    </div>
   </div>
 
   <!-- Job Progress -->
@@ -270,7 +294,9 @@ https://vm.tiktok.com/abcdef/
 
   <!-- Downloaded Files -->
   <div class="card">
-    <h3>📂 已下载文件 <span id="dirLabel" style="font-weight:400;font-size:12px;color:var(--text2)">— 默认目录</span></h3>
+    <h3>📂 已下载文件 <span id="dirLabel" style="font-weight:400;font-size:12px;color:var(--text2)">— 默认目录</span>
+      <a class="btn btn-secondary" href="/api/history/export" download style="float:right;padding:5px 12px;font-size:12px;margin-top:-3px;">📋 导出记录</a>
+    </h3>
     <div class="files-grid" id="fileList">
       <div class="empty-state">
         <div class="icon">📦</div>
@@ -280,11 +306,20 @@ https://vm.tiktok.com/abcdef/
   </div>
 </div>
 
+<!-- Video Modal -->
+<div class="modal-overlay" id="videoModal" onclick="closeModal(event)">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <video id="modalVideo" controls autoplay></video>
+  </div>
+</div>
+
 <script>
 // ========== State ==========
 let pollTimer = null;
 let jobMap = {};
 let currentSaveDir = "";
+let useProxy = true;
 
 // ========== Init ==========
 function initDir() {
@@ -338,7 +373,7 @@ async function startDownload() {
     const res = await fetch("/api/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ urls: input, save_dir: saveDir }),
+      body: JSON.stringify({ urls: input, save_dir: saveDir, use_proxy: useProxy }),
     });
     const data = await res.json();
     if (data.error) { alert(data.error); btn.disabled = false; btn.textContent = "⬇️ 开始下载"; return; }
@@ -374,6 +409,12 @@ function stopPolling() {
   document.getElementById("btnDownload").disabled = false;
   document.getElementById("btnDownload").textContent = "⬇️ 开始下载";
   loadFiles();  // 下载完成后自动刷新文件列表
+  // 浏览器通知
+  const done = Object.values(jobMap).filter(j => j.status === "done").length;
+  const fail = Object.values(jobMap).filter(j => j.status === "error").length;
+  if (done > 0 && Notification.permission === "granted") {
+    new Notification("TikTok 下载完成", { body: `✅ ${done} 个成功${fail > 0 ? `，❌ ${fail} 个失败` : ""}`, icon: "/static/favicon.svg" });
+  }
 }
 
 async function pollProgress() {
@@ -520,6 +561,7 @@ function renderFiles(files) {
       </div>
       <div class="file-actions">
         <a class="btn-dl" href="/api/video/${f.name.replace(/\.mp4$/,'')}" download>⬇️</a>
+        <a class="file-play" onclick="playVideo('${escJs(f.name)}')">▶️</a>
         <button class="btn-del" onclick="deleteFile('${escJs(f.name)}')">🗑️</button>
       </div>
     </div>
@@ -553,6 +595,36 @@ async function deleteFile(filename) {
   } catch (e) {
     alert("删除失败: " + e.message);
   }
+}
+
+// ========== Video Modal ==========
+function playVideo(filename) {
+  const jobId = filename.replace(/\.mp4$/, "");
+  const modal = document.getElementById("videoModal");
+  const video = document.getElementById("modalVideo");
+  video.src = `/api/video/${jobId}`;
+  modal.classList.add("active");
+  video.play();
+}
+function closeModal(e) {
+  if (e && e.target !== document.getElementById("videoModal")) return;
+  const modal = document.getElementById("videoModal");
+  const video = document.getElementById("modalVideo");
+  modal.classList.remove("active");
+  video.pause();
+  video.src = "";
+}
+
+// ========== Proxy Toggle ==========
+function toggleProxy() {
+  useProxy = document.getElementById("proxyToggle").checked;
+  const label = document.getElementById("proxyLabel");
+  label.textContent = useProxy ? "🛡️ 代理已开启 (127.0.0.1:7897)" : "⚠️ 代理已关闭";
+}
+
+// ========== Notification ==========
+if ("Notification" in window && Notification.permission === "default") {
+  Notification.requestPermission();
 }
 
 // Kickoff
