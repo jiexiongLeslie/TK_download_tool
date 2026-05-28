@@ -398,22 +398,61 @@ function initDir() {
     currentSaveDir = saved;
     document.getElementById("dirInput").value = saved;
   }
-  // 远程访问提示
+  // 远程访问：隐藏目录选择，直接下载到客户端设备
   if (!isLocalClient) {
-    document.getElementById("dirLabelHeader").innerHTML = '🖥️ 服务器保存目录 <span style="color:var(--accent)">*必填</span>:';
+    document.getElementById("dirLabelHeader").innerHTML = '📱 远程模式 — 视频将直接下载到你的设备';
+    document.getElementById("dirInput").style.display = "none";
     document.getElementById("btnPickDir").style.display = "none";
-    document.getElementById("dirInput").placeholder = "服务器路径，例: D:\\Downloads";
   }
 }
 
 // ========== Start Download ==========
 async function startDownload() {
   const input = document.getElementById("urlInput").value.trim();
-  const saveDir = document.getElementById("dirInput").value.trim();
   if (!input) { alert("请粘贴至少一个短视频链接"); return; }
-  if (!saveDir) { alert("请填写保存目录路径"); document.getElementById("dirInput").focus(); return; }
+
+  const saveDir = document.getElementById("dirInput").value.trim();
+  if (isLocalClient && !saveDir) { alert("请填写保存目录路径"); document.getElementById("dirInput").focus(); return; }
+
   const btn = document.getElementById("btnDownload");
 
+  // ── 远程模式：流式直传到客户端 ──
+  if (!isLocalClient) {
+    btn.disabled = true;
+    const urls = input.split("\n").map(u => u.trim()).filter(Boolean);
+    btn.textContent = `⏳ 下载中 0/${urls.length}`;
+    let done = 0;
+
+    for (const url of urls) {
+      try {
+        const resp = await fetch("/api/stream-download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, use_proxy: useProxy }),
+        });
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const cd = resp.headers.get("Content-Disposition") || "";
+          const m = cd.match(/filename\*=UTF-8''(.+)/) || cd.match(/filename="?([^"]+)"?/);
+          const filename = m ? decodeURIComponent(m[1]) : `video_${Date.now()}.mp4`;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(a.href);
+        }
+        done++;
+        btn.textContent = `⏳ 下载中 ${done}/${urls.length}`;
+      } catch (e) { console.error(e); done++; }
+    }
+    btn.disabled = false;
+    btn.textContent = "⬇️ 开始下载";
+    return;
+  }
+
+  // ── 本地模式：服务器下载 ──
   // Step 1: 检查是否已下载过
   btn.disabled = true;
   btn.textContent = "🔍 检查中...";

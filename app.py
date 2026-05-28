@@ -131,6 +131,76 @@ def api_check_duplicates():
     return jsonify(result)
 
 
+@app.route("/api/stream-download", methods=["POST"])
+def api_stream_download():
+    """
+    流式代理下载：服务器解析视频链接 → 直接流式传输到客户端
+    适用于远程设备，不占用服务器磁盘空间
+    """
+    import urllib.request as urlreq
+    import urllib.error as urlerr
+
+    data = request.get_json()
+    url = data.get("url", "")
+    use_proxy = data.get("use_proxy", True)
+
+    if not url:
+        return jsonify({"error": "请提供视频链接"}), 400
+
+    proxy = "http://127.0.0.1:7897" if use_proxy else None
+    opener = urlreq.build_opener()
+    if proxy:
+        opener = urlreq.build_opener(urlreq.ProxyHandler({"http": proxy, "https": proxy}))
+
+    # Step 1: 通过 tikwm API 获取视频下载链接
+    api_url = f"https://www.tikwm.com/api/?url={urlreq.quote(url, safe='')}"
+    try:
+        resp = opener.open(urlreq.Request(api_url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }), timeout=30)
+        api_data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        return jsonify({"error": f"解析视频失败: {e}"}), 500
+
+    if api_data.get("code") != 0:
+        return jsonify({"error": api_data.get("msg", "解析失败")}), 500
+
+    video_info = api_data["data"]
+    video_url = video_info.get("wmplay") or video_info.get("play")
+    title = video_info.get("title", "video")
+
+    if not video_url:
+        return jsonify({"error": "未找到视频下载链接"}), 500
+
+    # Step 2: 流式传输视频到客户端（不写入服务器磁盘）
+    def generate():
+        try:
+            dl_resp = opener.open(urlreq.Request(video_url, headers={
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
+                "Referer": "https://www.tiktok.com/",
+            }), timeout=120)
+            while True:
+                chunk = dl_resp.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+        except Exception:
+            pass
+
+    safe_title = title.replace('"', "'").replace('\n', ' ')[:80]
+    filename = f"{safe_title}.mp4"
+    encoded_fn = urlreq.quote(filename.encode("utf-8"))
+
+    return app.response_class(
+        generate(),
+        mimetype="video/mp4",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_fn}",
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
 @app.route("/api/history/export")
 def api_export_history():
     """导出当前 IP 的下载历史为 CSV"""
