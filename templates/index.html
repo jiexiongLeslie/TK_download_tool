@@ -185,25 +185,26 @@
   .progress-bar { height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
   .progress-fill {
     height: 100%; background: linear-gradient(90deg, var(--accent2), #5eeadb);
-    border-radius: 4px; transition: width 0.4s ease;
+    border-radius: 4px; transition: width 0.15s linear;
     position: relative;
   }
   .progress-fill::after {
     content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
     animation: shimmer 1.5s infinite;
   }
   @keyframes shimmer {
     0% { transform: translateX(-100%); }
     100% { transform: translateX(200%); }
   }
-  .progress-wrap .pct { font-size: 12px; color: var(--accent2); text-align: right; margin-top: 4px; font-weight: 600; }
+  .progress-wrap .pct { font-size: 13px; color: var(--accent2); text-align: right; margin-top: 4px; font-weight: 600; }
   .job-progress-detail {
     font-size: 11px; color: var(--text2); margin-top: 4px;
-    display: flex; gap: 10px; align-items: center;
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
   }
   .job-progress-detail .size-info { color: var(--accent2); font-weight: 500; }
-  .job-progress-detail .speed-info { color: var(--text3); }
+  .job-progress-detail .speed-info { color: #5eeadb; }
+  .job-progress-detail .eta-info { color: var(--text3); font-style: italic; }
 
   .job-actions { display: flex; gap: 6px; flex-shrink: 0; }
   .job-actions a {
@@ -480,6 +481,13 @@ async function startDownload() {
       jobMap[jid].received = 0;
       renderJobs();
 
+      // 节流渲染：最多每 80ms 刷新一次，避免 DOM 频繁重建
+      let lastRender = 0;
+      const throttledRender = () => {
+        const now = Date.now();
+        if (now - lastRender >= 80) { renderJobs(); lastRender = now; }
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -488,17 +496,37 @@ async function startDownload() {
         jobMap[jid].received = received;
         const now = Date.now();
         const elapsed = (now - lastTime) / 1000;
+
+        // 百分比
         if (totalBytes > 0) {
-          jobMap[jid].percent = Math.round(received / totalBytes * 100);
+          jobMap[jid].percent = Math.min(99, Math.round(received / totalBytes * 100));
         }
+
+        // 速度 & ETA（每 0.5s 更新）
         if (elapsed > 0.5) {
           const speed = (received - lastReceived) / elapsed;
           jobMap[jid].speed = formatSpeed(speed);
+          if (totalBytes > 0 && speed > 0) {
+            const remaining = totalBytes - received;
+            const etaSec = Math.round(remaining / speed);
+            if (etaSec < 60) jobMap[jid].eta = `${etaSec}秒`;
+            else if (etaSec < 3600) jobMap[jid].eta = `${Math.floor(etaSec/60)}分${etaSec%60}秒`;
+            else jobMap[jid].eta = `>1小时`;
+          }
           lastReceived = received;
           lastTime = now;
         }
-        renderJobs();
+
+        throttledRender();
       }
+      // 最后一次确保渲染
+      jobMap[jid].percent = 100;
+      renderJobs();
+
+      // ── 写入文件阶段（显示进度） ──
+      jobMap[jid].status = "writing";
+      jobMap[jid].writingMsg = "写入文件中...";
+      renderJobs();
 
       const blob = new Blob(chunks);
 
@@ -568,13 +596,15 @@ function renderJobs() {
     if (status === "error") err++;
 
     let icon = "⏳";
-    if (status === "downloading") icon = "⬇️";
+    if (status === "writing") icon = "💾";
+    else if (status === "downloading") icon = "⬇️";
     else if (status === "done") icon = "✅";
     else if (status === "error") icon = "❌";
 
     let badge = "";
     if (status === "done") badge = '<span class="status-badge done">完成</span>';
     else if (status === "error") badge = '<span class="status-badge error">失败</span>';
+    else if (status === "writing") badge = '<span class="status-badge downloading">写入中</span>';
     else if (status === "downloading") badge = '<span class="status-badge downloading">下载中</span>';
     else badge = '<span class="status-badge pending">排队中</span>';
 
@@ -587,8 +617,11 @@ function renderJobs() {
       if (j.received !== undefined && j.total > 0) {
         parts.push(`<span class="size-info">${formatSize(j.received)} / ${formatSize(j.total)}</span>`);
       }
-      if (j.speed) { parts.push(`<span class="speed-info">${j.speed}</span>`); }
+      if (j.speed) { parts.push(`<span class="speed-info">↡ ${j.speed}</span>`); }
+      if (j.eta) { parts.push(`<span class="eta-info">⏱ ${j.eta}</span>`); }
       if (parts.length > 0) { progressDetail = `<div class="job-progress-detail">${parts.join("")}</div>`; }
+    } else if (status === "writing") {
+      progressDetail = `<div class="job-progress-detail"><span class="size-info">${j.writingMsg || "写入文件中..."}</span></div>`;
     } else if (status === "done" && j.total > 0) {
       progressDetail = `<div class="job-progress-detail"><span class="size-info">${formatSize(j.total)}</span></div>`;
     }
