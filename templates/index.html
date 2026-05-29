@@ -347,9 +347,8 @@ https://vm.tiktok.com/abcdef/
 ...
 "></textarea>
     <div class="dir-row">
-      <span class="dir-label" id="dirLabelHeader">📁 保存目录 <span style="color:var(--accent)">*必填</span>:</span>
-      <input type="text" class="dir-input" id="dirInput" placeholder="例: D:\Videos\TikTok（服务器路径）" required>
-      <button class="btn btn-secondary" id="btnPickDir" onclick="pickDirectory()" style="padding:8px 14px;font-size:12px;">📂 选择目录</button>
+      <span class="dir-label" id="dirLabelHeader">📁 保存目录 <span style="color:var(--accent)">*必选</span>:</span>
+      <button class="btn btn-secondary" id="btnPickDir" onclick="remotePickDir()" style="padding:8px 14px;font-size:12px;">📂 选择本机目录</button>
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="btnDownload" onclick="startDownload()">
@@ -383,22 +382,11 @@ https://vm.tiktok.com/abcdef/
 
   <!-- Downloaded Files -->
   <div class="card">
-    <h3 style="cursor:pointer;user-select:none" onclick="toggleFiles()">
-      <span id="filesChevron" style="transition:transform 0.3s;display:inline-block">▶</span> 已下载文件
-      <span id="filesCount" style="font-weight:400;font-size:12px;color:var(--text2);margin-left:8px"></span>
-      <span id="dirLabel" style="font-weight:400;font-size:12px;color:var(--text2);margin-left:4px"></span>
-      <div style="flex:1"></div>
-      <a class="btn btn-secondary" href="/api/history/export" download style="padding:4px 10px;font-size:11px;margin-right:4px" onclick="event.stopPropagation()">📋 导出</a>
-      <a class="btn btn-secondary" onclick="event.stopPropagation();clearHistory()" style="padding:4px 10px;font-size:11px;margin-right:8px;cursor:pointer">🗑️ 清空历史</a>
-      <span id="filesToggle" style="font-size:12px;color:var(--text3);font-weight:400;cursor:pointer" onclick="event.stopPropagation();toggleFiles()">展开 ▼</span>
-    </h3>
-    <div id="filesContent" style="display:none">
-      <div class="files-grid" id="fileList">
-        <div class="empty-state">
-          <div class="icon">📦</div>
-          <p>暂无已下载文件</p>
-        </div>
-      </div>
+    <h3>💾 管理</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn btn-secondary" onclick="openDownloads()" style="padding:8px 16px;font-size:13px;">📁 浏览已下载文件</button>
+      <a class="btn btn-secondary" href="/api/history/export" download style="padding:8px 16px;font-size:13px;text-decoration:none">📋 导出历史</a>
+      <a class="btn btn-secondary" onclick="clearHistory()" style="padding:8px 16px;font-size:13px;cursor:pointer">🗑️ 清空历史</a>
     </div>
   </div>
 </div>
@@ -428,256 +416,135 @@ https://vm.tiktok.com/abcdef/
 
 <script>
 // ========== State ==========
-let pollTimer = null;
 let jobMap = {};
-let currentSaveDir = "";
 let useProxy = true;
-
-// ========== Init ==========
-function initDir() {
-  // 从 localStorage 恢复上次目录
-  const saved = localStorage.getItem("tiktok_save_dir");
-  if (saved) {
-    currentSaveDir = saved;
-    document.getElementById("dirInput").value = saved;
-  }
-  // 远程访问：添加本机目录选择
-  if (!isLocalClient) {
-    document.getElementById("dirLabelHeader").innerHTML = '📱 远程模式 — 点击下方按钮选择你设备的保存目录';
-    document.getElementById("dirInput").style.display = "none";
-    document.getElementById("btnPickDir").textContent = "📂 选择本机目录";
-    document.getElementById("btnPickDir").onclick = remotePickDir;
-  }
-}
+let remoteDirHandle = null;
 
 // ========== Start Download ==========
 async function startDownload() {
   const input = document.getElementById("urlInput").value.trim();
   if (!input) { alert("请粘贴至少一个短视频链接"); return; }
 
-  const saveDir = document.getElementById("dirInput").value.trim();
-  if (isLocalClient && !saveDir) { alert("请填写保存目录路径"); document.getElementById("dirInput").focus(); return; }
-
-  const btn = document.getElementById("btnDownload");
-
-  // ── 远程模式：流式直传到客户端 ──
-  if (!isLocalClient) {
-    btn.disabled = true;
-    const urls = input.split("\n").map(u => u.trim()).filter(Boolean);
-    const total = urls.length;
-    // 初始化进度
-    urls.forEach((url, i) => {
-      const jid = `remote_${Date.now()}_${i}`;
-      jobMap[jid] = { url, status: "pending", percent: 0, title: url };
-    });
-    renderJobs();
-
-    let doneCount = 0;
-    for (let i = 0; i < urls.length; i++) {
-      const url = urls[i];
-      const jid = Object.keys(jobMap).find(k => jobMap[k].url === url && jobMap[k].status === "pending");
-      if (!jid) continue;
-
-      jobMap[jid].status = "downloading";
-      renderJobs();
-
-      try {
-        const resp = await fetch("/api/stream-download", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, use_proxy: useProxy }),
-        });
-        if (!resp.ok) {
-          const errData = await resp.json().catch(() => ({}));
-          jobMap[jid].status = "error";
-          jobMap[jid].error = errData.error || "下载失败";
-          renderJobs(); doneCount++; continue;
-        }
-
-        const totalBytes = parseInt(resp.headers.get("Content-Length") || "0");
-        const reader = resp.body.getReader();
-        const chunks = [];
-        let received = 0, lastReceived = 0, lastTime = Date.now();
-
-        // 先提取文件名
-        const cd = resp.headers.get("Content-Disposition") || "";
-        const m = cd.match(/filename\*=UTF-8''(.+)/) || cd.match(/filename="?([^"]+)"?/);
-        let filename = m ? decodeURIComponent(m[1]) : `video_${Date.now()}.mp4`;
-        filename = filename.replace(/[\\/:*?"<>|]/g, "_").substring(0, 120);
-
-        // 设置初始进度信息
-        jobMap[jid].title = filename;
-        jobMap[jid].total = totalBytes;
-        jobMap[jid].received = 0;
-        renderJobs();
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          received += value.length;
-          jobMap[jid].received = received;
-          const now = Date.now();
-          const elapsed = (now - lastTime) / 1000;
-          if (totalBytes > 0) {
-            jobMap[jid].percent = Math.round(received / totalBytes * 100);
-          }
-          if (elapsed > 0.5) {
-            const speed = (received - lastReceived) / elapsed;
-            jobMap[jid].speed = formatSpeed(speed);
-            lastReceived = received;
-            lastTime = now;
-          }
-          renderJobs();
-        }
-
-        const blob = new Blob(chunks);
-
-        // 尝试写入选定目录，失败则弹出浏览器下载
-        let saved = false;
-        if (remoteDirHandle) {
-          try {
-            // 先请求/验证写入权限
-            const perm = await remoteDirHandle.queryPermission({ mode: "readwrite" });
-            if (perm !== "granted") {
-              const req = await remoteDirHandle.requestPermission({ mode: "readwrite" });
-              if (req !== "granted") {
-                throw new Error("目录写入权限被拒绝");
-              }
-            }
-            const fileHandle = await remoteDirHandle.getFileHandle(filename, { create: true });
-            const writable = await fileHandle.createWritable();
-            await writable.write(blob);
-            await writable.close();
-            saved = true;
-          } catch (e) {
-            console.error("写入目录失败:", e.message);
-            // 权限问题提示用户重新选择目录
-            if (e.message.includes("权限") || e.name === "NotAllowedError") {
-              alert(`写入目录失败：${e.message}\n\n请重新点击"选择本机目录"按钮授权。`);
-              remoteDirHandle = null;
-            }
-          }
-        }
-        if (!saved) { triggerDownload(blob, filename); }
-
-        jobMap[jid].status = "done";
-        jobMap[jid].percent = 100;
-        jobMap[jid].title = filename;
-        jobMap[jid].destination = saved ? remoteDirHandle?.name || "已选目录" : "浏览器下载";
-        renderJobs();
-      } catch (e) {
-        jobMap[jid].status = "error";
-        jobMap[jid].error = e.message;
-        renderJobs();
-      }
-      doneCount++;
-      btn.textContent = `⏳ 已完成 ${doneCount}/${total}`;
-    }
-    btn.disabled = false;
-    btn.textContent = "⬇️ 开始下载";
-    stopPolling();  // 远程模式也触发通知
+  if (!remoteDirHandle) {
+    alert("请先点击「选择本机目录」选择保存位置。");
     return;
   }
 
-  // ── 本地模式：服务器下载 ──
-  // Step 1: 检查是否已下载过
+  const btn = document.getElementById("btnDownload");
   btn.disabled = true;
-  btn.textContent = "🔍 检查中...";
 
-  try {
-    const checkRes = await fetch("/api/download/check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ urls: input, save_dir: saveDir }),
-    });
-    const checkData = await checkRes.json();
-    const dupes = checkData.duplicates || [];
+  const urls = input.split("\n").map(u => u.trim()).filter(Boolean);
+  const total = urls.length;
+  urls.forEach((url, i) => {
+    const jid = `dl_${Date.now()}_${i}`;
+    jobMap[jid] = { url, status: "pending", percent: 0, title: url };
+  });
+  renderJobs();
 
-    // Step 2: 有重复则确认
-    if (dupes.length > 0) {
-      const dupList = dupes.map(d =>
-        `• ${d.record.title || d.url.slice(-30)}\n  🕐 ${d.record.time}`
-      ).join("\n\n");
+  let doneCount = 0;
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    const jid = Object.keys(jobMap).find(k => jobMap[k].url === url && jobMap[k].status === "pending");
+    if (!jid) continue;
 
-      const confirmed = confirm(
-        `${dupes.length}/${checkData.duplicates.length + (checkData.new || []).length} 个链接已下载过：\n\n${dupList}\n\n是否仍要重新下载这些视频？\n（已存在的文件会自动加上 _1 _2 后缀）`
-      );
-      if (!confirmed) {
-        btn.disabled = false;
-        btn.textContent = "⬇️ 开始下载";
-        return;
-      }
-    }
-
-    // Step 3: 执行下载
-    btn.textContent = "⏳ 提交中...";
-    const res = await fetch("/api/download", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ urls: input, save_dir: saveDir, use_proxy: useProxy }),
-    });
-    const data = await res.json();
-    if (data.error) { alert(data.error); btn.disabled = false; btn.textContent = "⬇️ 开始下载"; return; }
-
-    if (data.save_dir) {
-      currentSaveDir = data.save_dir;
-      localStorage.setItem("tiktok_save_dir", data.save_dir);
-      document.getElementById("dirInput").value = data.save_dir;
-    }
-
-    (data.jobs || []).forEach(j => {
-      jobMap[j.job_id] = { ...j, title: "准备中...", percent: 0 };
-    });
-
+    jobMap[jid].status = "downloading";
     renderJobs();
-    startPolling();
-    loadFiles();
-  } catch (e) {
-    alert("请求失败: " + e.message);
-    btn.disabled = false;
-    btn.textContent = "⬇️ 开始下载";
-  }
-}
 
-// ========== Polling ==========
-function startPolling() {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(pollProgress, 800);
-}
-
-function stopPolling() {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  document.getElementById("btnDownload").disabled = false;
-  document.getElementById("btnDownload").textContent = "⬇️ 开始下载";
-  loadFiles();  // 下载完成后自动刷新文件列表
-  // 自动展开已下载文件
-  if (!filesExpanded) toggleFiles();
-  // 浏览器通知
-  const done = Object.values(jobMap).filter(j => j.status === "done").length;
-  const fail = Object.values(jobMap).filter(j => j.status === "error").length;
-  if (done > 0 && Notification.permission === "granted") {
-    new Notification("TikTok 下载完成", { body: `✅ ${done} 个成功${fail > 0 ? `，❌ ${fail} 个失败` : ""}`, icon: "/static/favicon.svg" });
-  }
-}
-
-async function pollProgress() {
-  try {
-    const res = await fetch("/api/progress");
-    const progress = await res.json();
-
-    let allDone = true;
-    for (const [id, p] of Object.entries(progress)) {
-      if (p.status !== "done" && p.status !== "error") allDone = false;
-      // 自动下载到客户端设备
-      if (p.status === "done" && jobMap[id] && jobMap[id].status !== "done") {
-        autoDownloadToClient(id);
+    try {
+      const resp = await fetch("/api/stream-download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, use_proxy: useProxy }),
+      });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        jobMap[jid].status = "error";
+        jobMap[jid].error = errData.error || "下载失败";
+        renderJobs(); doneCount++; continue;
       }
-      jobMap[id] = { ...jobMap[id], ...p };
+
+      const totalBytes = parseInt(resp.headers.get("Content-Length") || "0");
+      const reader = resp.body.getReader();
+      const chunks = [];
+      let received = 0, lastReceived = 0, lastTime = Date.now();
+
+      // 提取文件名
+      const cd = resp.headers.get("Content-Disposition") || "";
+      const m = cd.match(/filename\*=UTF-8''(.+)/) || cd.match(/filename="?([^"]+)"?/);
+      let filename = m ? decodeURIComponent(m[1]) : `video_${Date.now()}.mp4`;
+      filename = filename.replace(/[\\/:*?"<>|]/g, "_").substring(0, 120);
+
+      // 初始进度
+      jobMap[jid].title = filename;
+      jobMap[jid].total = totalBytes;
+      jobMap[jid].received = 0;
+      renderJobs();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        jobMap[jid].received = received;
+        const now = Date.now();
+        const elapsed = (now - lastTime) / 1000;
+        if (totalBytes > 0) {
+          jobMap[jid].percent = Math.round(received / totalBytes * 100);
+        }
+        if (elapsed > 0.5) {
+          const speed = (received - lastReceived) / elapsed;
+          jobMap[jid].speed = formatSpeed(speed);
+          lastReceived = received;
+          lastTime = now;
+        }
+        renderJobs();
+      }
+
+      const blob = new Blob(chunks);
+
+      // 写入用户选定的本机目录
+      let saved = false;
+      let saveError = "";
+      try {
+        let perm = await remoteDirHandle.queryPermission({ mode: "readwrite" });
+        if (perm !== "granted") {
+          perm = await remoteDirHandle.requestPermission({ mode: "readwrite" });
+          if (perm !== "granted") {
+            throw new Error("用户未授权目录写入权限");
+          }
+        }
+        const fileHandle = await remoteDirHandle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        saved = true;
+      } catch (e) {
+        saveError = e.message || String(e);
+        console.error("写入目录失败:", saveError);
+      }
+
+      if (!saved) {
+        const msg = `⚠️ 无法保存到「${remoteDirHandle.name}」\n\n原因：${saveError || "未知错误"}\n\n请点击「确定」用浏览器方式保存，或点击「取消」重新选择目录。`;
+        if (confirm(msg)) {
+          triggerDownload(blob, filename);
+        }
+      }
+
+      jobMap[jid].status = "done";
+      jobMap[jid].percent = 100;
+      jobMap[jid].title = filename;
+      jobMap[jid].destination = saved ? remoteDirHandle.name : "浏览器下载";
+      renderJobs();
+    } catch (e) {
+      jobMap[jid].status = "error";
+      jobMap[jid].error = e.message;
+      renderJobs();
     }
-    renderJobs();
-    if (allDone && Object.keys(jobMap).length > 0) stopPolling();
-  } catch (e) { console.error(e); }
+    doneCount++;
+    btn.textContent = `⏳ 已完成 ${doneCount}/${total}`;
+  }
+  btn.disabled = false;
+  btn.textContent = "⬇️ 开始下载";
 }
 
 // ========== Render ==========
@@ -745,7 +612,6 @@ function renderJobs() {
         </div>
         <div class="job-actions">
           ${badge}
-          ${status === "done" ? `<a class="btn-dl" href="/api/video/${id}" download>⬇️ 下载</a>` : ""}
         </div>
       </div>`;
   });
@@ -769,36 +635,17 @@ function esc(s) {
 function clearJobs() {
   if (!confirm("确认清空所有下载记录？")) return;
   jobMap = {};
-  stopPolling();
   renderJobs();
   document.getElementById("urlInput").value = "";
 }
 
 // ========== Open folder ==========
 function openDownloads() {
-  // 远程模式：通过 File System Access API 读取本机目录，在弹窗中展示
-  if (!isLocalClient) {
-    if (remoteDirHandle) {
-      openRemoteDirectory();
-    } else {
-      alert("📁 你还未选择本机目录。\n\n请先点击「选择本机目录」选择保存位置。");
-    }
+  if (!remoteDirHandle) {
+    alert("请先点击「选择本机目录」选择保存位置。");
     return;
   }
-  // 本地模式：打开服务器上用户选择的目录
-  const dir = currentSaveDir || document.getElementById("dirInput").value.trim() || "";
-  if (!dir) {
-    alert("请先设置保存目录路径。");
-    document.getElementById("dirInput").focus();
-    return;
-  }
-  fetch("/api/open-dir", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ dir }),
-  }).then(r => r.json()).then(data => {
-    if (data.error) alert("打开目录失败: " + data.error);
-  }).catch(() => {});
+  openRemoteDirectory();
 }
 
 // 远程模式：在弹窗中打开本机目录
@@ -905,85 +752,17 @@ async function playRemoteVideoInModal(filename) {
   }
 }
 
-// ========== Files ==========
-async function loadFiles() {
-  const container = document.getElementById("fileList");
-  container.dataset.showCount = "";  // 重置分页
-  try {
-    const dir = currentSaveDir || "";
-    const url = dir ? `/api/file?dir=${encodeURIComponent(dir)}` : "/api/file";
-    const res = await fetch(url);
-    const data = await res.json();
-    const label = document.getElementById("dirLabel");
-    if (label) { label.textContent = data.dir ? `— ${data.dir}` : "— 默认目录"; }
-    renderFiles(data.files);
-  } catch (e) {}
-}
-
-function showMoreFiles(count) {
-  const container = document.getElementById("fileList");
-  const files = container._allFiles || [];
-  container.dataset.showCount = count;
-  renderFiles(files);
-}
-
-function resetDir() {}
-
-// ========== Auto-download to client ==========
-async function autoDownloadToClient(jobId) {
-  try {
-    const j = jobMap[jobId];
-    const filename = j.filename || `${jobId}.mp4`;
-    const resp = await fetch(`/api/video/${jobId}?name=${encodeURIComponent(filename)}&dir=${encodeURIComponent(currentSaveDir)}`);
-    if (!resp.ok) return;
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch (e) { console.error("auto-download failed:", e); }
-}
-
-// ========== Collapsible Files ==========
-let filesExpanded = false;
-function toggleFiles() {
-  filesExpanded = !filesExpanded;
-  const content = document.getElementById("filesContent");
-  const chevron = document.getElementById("filesChevron");
-  const toggle = document.getElementById("filesToggle");
-  if (filesExpanded) {
-    content.style.display = "block";
-    chevron.style.transform = "rotate(90deg)";
-    toggle.textContent = "收起 ▲";
-    if (!content.dataset.loaded) {
-      loadFiles();
-      content.dataset.loaded = "1";
-    }
-  } else {
-    content.style.display = "none";
-    chevron.style.transform = "rotate(0deg)";
-    toggle.textContent = "展开 ▼";
-  }
-}
-
 // ========== History Clear ==========
 async function clearHistory() {
-  if (!confirm("确认清空当前 IP 的所有下载记录？\n（不影响已下载的视频文件）")) return;
+  if (!confirm("确认清空当前 IP 的所有下载记录？")) return;
   try {
     const res = await fetch("/api/history/clear", { method: "POST" });
     const data = await res.json();
     alert(data.message);
-    loadFiles();
   } catch (e) { alert("清除失败: " + e.message); }
 }
 
 // ========== Remote Directory Picker ==========
-let remoteDirHandle = null;
-
 async function remotePickDir() {
   if (!("showDirectoryPicker" in window)) {
     alert("你的浏览器不支持选择目录。\n\n视频将保存到浏览器默认下载目录。");
@@ -1004,82 +783,8 @@ function triggerDownload(blob, filename) {
   document.body.removeChild(a);
   URL.revokeObjectURL(a.href);
 }
-let isLocalClient = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname === "::1";
 
-async function pickDirectory() {
-  // 非本机访问：使用浏览器原生选择器（运行在客户端设备上）
-  if (!isLocalClient) {
-    if ("showDirectoryPicker" in window) {
-      try {
-        const handle = await window.showDirectoryPicker({ mode: "readwrite" });
-        remoteDirHandle = handle;
-        document.getElementById("dirLabelHeader").innerHTML = `📁 保存目录: <span style="color:var(--accent2);font-weight:600">${handle.name}</span>`;
-        return;
-      } catch (e) { /* 用户取消或不支持 */ }
-    }
-    alert("远程访问时，请手动输入服务器上的保存路径。\n\n文件将先下载到服务器，再传输到你的设备。");
-    return;
-  }
-
-  // 本机访问：使用服务器端 PowerShell 选择器
-  try {
-    const res = await fetch("/api/pick-dir");
-    const data = await res.json();
-    if (data.folder) {
-      document.getElementById("dirInput").value = data.folder;
-    }
-  } catch (e) {
-    alert("打开目录选择器失败: " + e.message);
-  }
-}
-
-function renderFiles(files) {
-  const container = document.getElementById("fileList");
-  // 更新文件计数
-  const countEl = document.getElementById("filesCount");
-  if (countEl) {
-    countEl.textContent = files && files.length > 0 ? `(${files.length} 个)` : "";
-  }
-  if (!files || files.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="icon">📦</div><p>暂无已下载文件</p></div>';
-    return;
-  }
-
-  // 分页：首次展示 8 个
-  const pageSize = 8;
-  const showCount = container.dataset.showCount ? parseInt(container.dataset.showCount) : pageSize;
-  const visible = files.slice(0, showCount);
-  const hasMore = files.length > showCount;
-
-  let html = visible.map(f => `
-    <div class="file-card">
-      <div class="fname">${esc(f.name)}</div>
-      <div class="finfo">
-        <span>${formatSize(f.size)}</span>
-        <span>${f.mtime}</span>
-      </div>
-      <div class="file-actions">
-        <a class="btn-dl" href="/api/video/${f.name.replace(/\.mp4$/,'')}" download>⬇️</a>
-        <a class="file-play" onclick="playVideo('${escJs(f.name)}')">▶️</a>
-        <button class="btn-del" onclick="deleteFile('${escJs(f.name)}')">🗑️</button>
-      </div>
-    </div>
-  `).join("");
-
-  if (hasMore) {
-    html += `<div style="grid-column:1/-1;text-align:center;padding:12px">
-      <span style="font-size:12px;color:var(--text2)">显示 ${showCount} / ${files.length} 个</span>
-      <br><button class="btn btn-secondary" onclick="showMoreFiles(${showCount + pageSize})" style="margin-top:8px;padding:8px 20px;">📂 加载更多 (+${Math.min(pageSize, files.length - showCount)})</button>
-    </div>`;
-  }
-
-  container.innerHTML = html;
-  // 保存当前显示数量
-  container.dataset.showCount = showCount;
-  // 保存完整文件列表
-  container._allFiles = files;
-}
-
+// ========== Utility ==========
 function formatSize(bytes) {
   if (!bytes) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
@@ -1096,33 +801,7 @@ function escJs(s) {
   return s.replace(/'/g, "\\'").replace(/"/g, '\\"');
 }
 
-async function deleteFile(filename) {
-  if (!confirm(`确认删除 \"${filename}\"？`)) return;
-  try {
-    const dir = currentSaveDir || "";
-    const res = await fetch("/api/file/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename, dir }),
-    });
-    const data = await res.json();
-    if (data.error) { alert(data.error); return; }
-    loadFiles();
-  } catch (e) {
-    alert("删除失败: " + e.message);
-  }
-}
-
 // ========== Video Modal ==========
-function playVideo(filename) {
-  const jobId = filename.replace(/\.mp4$/, "");
-  const dir = currentSaveDir || "";
-  const modal = document.getElementById("videoModal");
-  const video = document.getElementById("modalVideo");
-  video.src = `/api/video/${jobId}?name=${encodeURIComponent(filename)}&dir=${encodeURIComponent(dir)}`;
-  modal.classList.add("active");
-  video.play();
-}
 function closeModal(e) {
   if (e && e.target !== document.getElementById("videoModal")) return;
   const modal = document.getElementById("videoModal");

@@ -1,19 +1,16 @@
 """
-TikTok 视频批量下载器 - Flask Web 应用
+TikTok 视频批量下载器 - Flask Web 应用 (流式直传版)
+所有设备统一：浏览器选目录 → 服务器代理解析 → 流式直传客户端
 """
 
 import csv
 import io
-import os
-import threading
 import time
 import json
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
-from downloader import download_video, get_progress, extract_job_id
-from history import check_duplicates, record_download, load_history, all_history, clear_ip_history
+from history import load_history, clear_ip_history
 
 
 def _get_client_ip() -> str:
@@ -27,9 +24,6 @@ app = Flask(__name__)
 CORS(app)
 
 BASE_DIR = Path(__file__).parent
-DOWNLOADS_DIR = BASE_DIR / "downloads"
-STATIC_DIR = BASE_DIR / "static"
-VIDEO_EXTS = {".mp4", ".webm", ".mkv", ".mov", ".avi", ".flv", ".ts"}  # 支持的视频格式
 
 
 @app.route("/static/<path:filename>")
@@ -45,90 +39,12 @@ def index():
 @app.route("/api/health")
 def api_health():
     """健康检查"""
-    try:
-        import yt_dlp
-        ytdlp_ok = True
-    except ImportError:
-        ytdlp_ok = False
     return jsonify({
         "status": "ok",
-        "version": "1.3",
-        "yt_dlp": ytdlp_ok,
+        "version": "2.0",
+        "mode": "stream-only",
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
     })
-
-
-@app.route("/api/download", methods=["POST"])
-def api_download():
-    """接收下载请求，异步执行"""
-    data = request.get_json()
-    urls_input = data.get("urls", "")
-    save_dir = data.get("save_dir", "")
-    use_proxy = data.get("use_proxy", True)
-    client_ip = _get_client_ip()
-
-    # 按行分割，过滤空行
-    urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
-
-    if not urls:
-        return jsonify({"error": "请至少输入一个有效的 TikTok 视频链接"}), 400
-
-    # 验证必填的保存目录
-    if not save_dir:
-        return jsonify({"error": "请填写保存目录路径"}), 400
-
-    target_dir = Path(save_dir)
-
-    try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        return jsonify({"error": f"无法创建目录: {e}"}), 400
-
-    jobs = []
-    for url in urls:
-        job_id = extract_job_id(url)
-        jobs.append({"job_id": job_id, "url": url, "status": "queued"})
-
-    # 并发下载（最多 3 个同时进行）
-    proxy = "http://127.0.0.1:7897" if use_proxy else None
-
-    def run_downloads():
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = {executor.submit(download_video, url, str(target_dir), proxy): url for url in urls}
-            for future in as_completed(futures):
-                result = future.result()
-                if result["status"] == "done":
-                    record_download(
-                        client_ip,
-                        futures[future],
-                        result["job_id"],
-                        result["title"],
-                        result["filepath"],
-                    )
-
-    thread = threading.Thread(target=run_downloads, daemon=True)
-    thread.start()
-
-    return jsonify({
-        "message": f"已提交 {len(urls)} 个下载任务",
-        "save_dir": str(target_dir),
-        "jobs": jobs,
-    })
-
-
-@app.route("/api/download/check", methods=["POST"])
-def api_check_duplicates():
-    """检查链接是否已下载过（文件仍存在磁盘才算重复）"""
-    data = request.get_json()
-    urls_input = data.get("urls", "")
-    save_dir = data.get("save_dir", "")
-    urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
-
-    if not urls:
-        return jsonify({"duplicates": [], "new": [], "total_history": 0})
-
-    result = check_duplicates(_get_client_ip(), urls, save_dir)
-    return jsonify(result)
 
 
 @app.route("/api/stream-download", methods=["POST"])
@@ -241,132 +157,6 @@ def api_clear_history():
     return jsonify({"message": f"已清空 {count} 条下载记录", "count": count})
 
 
-@app.route("/api/pick-dir")
-def api_pick_dir():
-    """打开 Windows 原生文件夹选择对话框，返回选中路径"""
-    import subprocess
-
-    # 使用 Shell.Application COM 对象，不依赖窗口句柄
-    ps_script = """
-$shell = New-Object -ComObject Shell.Application
-$folder = $shell.BrowseForFolder(0, "选择视频保存目录", 0, 0)
-if ($folder) { $folder.Self.Path } else { "" }
-"""
-    try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps_script],
-            capture_output=True, text=True, timeout=60,
-        )
-        folder = result.stdout.strip()
-        if folder:
-            return jsonify({"folder": folder})
-        return jsonify({"folder": ""})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/open-dir", methods=["POST"])
-def api_open_dir():
-    """在 Windows 资源管理器中打开下载目录"""
-    data = request.get_json()
-    dir_param = data.get("dir", "")
-    target = Path(dir_param) if dir_param else DOWNLOADS_DIR
-    try:
-        target.mkdir(parents=True, exist_ok=True)
-        os.startfile(str(target))
-        return jsonify({"message": f"已打开 {target}"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/progress")
-def api_progress():
-    """查询下载进度"""
-    return jsonify(get_progress())
-
-
-@app.route("/api/progress/<job_id>")
-def api_progress_one(job_id):
-    """查询单个任务进度"""
-    return jsonify(get_progress(job_id))
-
-
-@app.route("/api/video/<job_id>")
-def api_serve_video(job_id):
-    """提供视频文件下载/播放（直接从磁盘查找所有视频格式）"""
-    filename = request.args.get("name", "")
-    save_dir = request.args.get("dir", "")
-    search_dir = Path(save_dir) if save_dir else DOWNLOADS_DIR
-
-    # MIME 映射
-    mime_map = {".mp4": "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska",
-                ".mov": "video/quicktime", ".flv": "video/x-flv", ".ts": "video/mp2t"}
-
-    # 先按完整文件名查找
-    if filename:
-        path = search_dir / filename
-        if path.exists() and path.suffix.lower() in VIDEO_EXTS:
-            mime = mime_map.get(path.suffix.lower(), "video/mp4")
-            return send_file(path, mimetype=mime, as_attachment=False)
-
-    # 回退：按 job_id 模糊匹配
-    for ext in VIDEO_EXTS:
-        for f in search_dir.glob(f"*{job_id}*{ext}"):
-            mime = mime_map.get(ext, "video/mp4")
-            return send_file(f, mimetype=mime, as_attachment=False)
-
-    return jsonify({"error": "文件不存在"}), 404
-
-
-@app.route("/api/file")
-def api_file_info():
-    """获取已下载文件列表，支持指定目录"""
-    dir_param = request.args.get("dir", "")
-    if not dir_param:
-        return jsonify({"files": [], "dir": "未设置"})
-    search_dir = Path(dir_param)
-
-    files = []
-    if search_dir.exists():
-        all_videos = []
-        for ext in VIDEO_EXTS:
-            all_videos.extend(search_dir.glob(f"*{ext}"))
-        for f in sorted(all_videos, key=lambda x: x.stat().st_mtime, reverse=True):
-            files.append({
-                "name": f.name,
-                "size": f.stat().st_size,
-                "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(f.stat().st_mtime)),
-            })
-    return jsonify({"files": files, "dir": str(search_dir)})
-
-
-@app.route("/api/file/delete", methods=["POST"])
-def api_delete_file():
-    """删除指定文件"""
-    data = request.get_json()
-    filename = data.get("filename", "")
-    dir_param = data.get("dir", "")
-
-    if not filename:
-        return jsonify({"error": "请指定要删除的文件"}), 400
-
-    search_dir = Path(dir_param) if dir_param else DOWNLOADS_DIR
-    filepath = search_dir / filename
-
-    # 安全检查：只允许删除视频文件
-    if filepath.suffix.lower() not in VIDEO_EXTS:
-        return jsonify({"error": f"不支持的视频格式: {filepath.suffix}"}), 400
-
-    if not filepath.exists():
-        return jsonify({"error": "文件不存在"}), 404
-
-    try:
-        filepath.unlink()
-        return jsonify({"message": f"已删除 {filename}"})
-    except Exception as e:
-        return jsonify({"error": f"删除失败: {e}"}), 500
-
-
 def _get_local_ip() -> str:
     """获取本机局域网 IP"""
     import socket
@@ -381,9 +171,6 @@ def _get_local_ip() -> str:
 
 
 if __name__ == "__main__":
-    DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    local_ip = _get_local_ip()
-
     from hypercorn.config import Config
     from hypercorn.asyncio import serve as hc_serve
     import asyncio
@@ -395,10 +182,11 @@ if __name__ == "__main__":
     config.worker_class = "asyncio"
     config.accesslog = "-"
 
+    local_ip = _get_local_ip()
     print(f"\n  {'='*50}")
-    print(f"  🎬 短视频批量下载器 v1.3")
-    print(f"  🔒 本机: https://127.0.0.1:5000")
-    print(f"  📱 远程: https://{local_ip}:5000")
-    print(f"  ⚠️ 远程首次需信任证书（高级/继续访问）")
+    print(f"  🎬 短视频批量下载器 v2.0 (统一流式版)")
+    print(f"  🔒 https://127.0.0.1:5000")
+    print(f"  📱 https://{local_ip}:5000")
+    print(f"  💡 所有设备统一：浏览器选目录 → 流式直传 → 本机保存")
     print(f"  {'='*50}\n")
     asyncio.run(hc_serve(app, config))
