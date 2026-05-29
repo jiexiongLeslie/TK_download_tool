@@ -704,11 +704,15 @@ function openDownloads() {
     alert("📱 文件已保存到手机的浏览器默认下载目录。\n\n• iPhone: Safari → 下载 → 文件 App\n• Android: Chrome → 文件管理器 → Download\n\n也可在浏览器下载记录中查看。");
     return;
   }
-  if (!remoteDirHandle) {
-    alert("请先点击「选择本机目录」选择保存位置。");
+  if (remoteDirHandle) {
+    openRemoteDirectory();
     return;
   }
-  openRemoteDirectory();
+  // 还没选目录，引导选择后直接打开
+  alert("请先选择保存视频的目录，选择后将自动打开该目录。");
+  remotePickDir().then(() => {
+    if (remoteDirHandle) openRemoteDirectory();
+  });
 }
 
 // 远程模式：在弹窗中打开本机目录
