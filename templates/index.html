@@ -311,14 +311,26 @@
   }
 
   @media (max-width: 640px) {
-    .container { padding: 16px 12px 60px; }
-    .header { padding: 32px 0 24px; }
-    .header h1 { font-size: 24px; }
-    .card { padding: 20px; }
-    .files-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
-    .job-item { flex-wrap: wrap; }
-    .progress-wrap { width: 100%; order: 3; }
+    .container { padding: 12px 8px 80px; }
+    .header { padding: 24px 0 16px; }
+    .header h1 { font-size: 22px; }
+    .header p { font-size: 12px; }
+    .card { padding: 16px; }
+    .card h3 { font-size: 15px; }
+    .dir-row { flex-direction: column; align-items: stretch; gap: 6px; }
+    .dir-label { font-size: 12px; }
+    .btn-row { flex-wrap: wrap; gap: 6px; }
+    .btn-row button, .btn-row a { flex: 1; min-width: 100px; font-size: 13px; padding: 12px 8px; }
+    textarea { font-size: 15px; /* prevent iOS zoom */ }
+    .job-item { flex-wrap: wrap; padding: 10px; }
+    .job-item .job-info .title { font-size: 12px; }
+    .progress-wrap { width: 100%; order: 3; margin-top: 8px; }
     .stats { flex-direction: column; gap: 10px; }
+    .dir-modal-content { width: 96%; max-height: 85vh; }
+    .dir-modal-header { padding: 14px 16px 12px; }
+    .dir-file-row { padding: 10px; }
+    .job-actions { width: 100%; justify-content: flex-end; margin-top: 6px; }
+    .proxy-row { flex-wrap: wrap; gap: 6px; }
   }
 </style>
 </head>
@@ -385,7 +397,7 @@ https://vm.tiktok.com/abcdef/
   <div class="card">
     <h3>💾 管理</h3>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <button class="btn btn-secondary" onclick="openDownloads()" style="padding:8px 16px;font-size:13px;">📁 浏览已下载文件</button>
+      <button class="btn btn-secondary" id="openDirBtn" onclick="openDownloads()" style="padding:8px 16px;font-size:13px;">📁 浏览已下载文件</button>
       <a class="btn btn-secondary" href="/api/history/export" download style="padding:8px 16px;font-size:13px;text-decoration:none">📋 导出历史</a>
       <a class="btn btn-secondary" onclick="clearHistory()" style="padding:8px 16px;font-size:13px;cursor:pointer">🗑️ 清空历史</a>
     </div>
@@ -420,13 +432,22 @@ https://vm.tiktok.com/abcdef/
 let jobMap = {};
 let useProxy = true;
 let remoteDirHandle = null;
+const isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent) || !("showDirectoryPicker" in window);
+
+// ========== Mobile Init ==========
+if (isMobile) {
+  document.getElementById("dirLabelHeader").innerHTML = '📁 保存位置: <span style="color:var(--accent2);font-weight:600">浏览器默认下载目录</span>';
+  document.getElementById("btnPickDir").style.display = "none";
+  document.getElementById("openDirBtn").textContent = "📁 查看下载列表";
+}
+document.getElementById("btnDownload").onclick = startDownload;
 
 // ========== Start Download ==========
 async function startDownload() {
   const input = document.getElementById("urlInput").value.trim();
   if (!input) { alert("请粘贴至少一个短视频链接"); return; }
 
-  if (!remoteDirHandle) {
+  if (!remoteDirHandle && !isMobile) {
     alert("请先点击「选择本机目录」选择保存位置。");
     return;
   }
@@ -523,45 +544,50 @@ async function startDownload() {
       jobMap[jid].percent = 100;
       renderJobs();
 
-      // ── 写入文件阶段（显示进度） ──
-      jobMap[jid].status = "writing";
-      jobMap[jid].writingMsg = "写入文件中...";
-      renderJobs();
-
       const blob = new Blob(chunks);
 
-      // 写入用户选定的本机目录
+      // 写入文件（仅桌面端 File System Access API）
       let saved = false;
-      let saveError = "";
-      try {
-        let perm = await remoteDirHandle.queryPermission({ mode: "readwrite" });
-        if (perm !== "granted") {
-          perm = await remoteDirHandle.requestPermission({ mode: "readwrite" });
-          if (perm !== "granted") {
-            throw new Error("用户未授权目录写入权限");
-          }
-        }
-        const fileHandle = await remoteDirHandle.getFileHandle(filename, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        saved = true;
-      } catch (e) {
-        saveError = e.message || String(e);
-        console.error("写入目录失败:", saveError);
-      }
+      if (isMobile) {
+        // 手机端：直接触发浏览器下载
+        triggerDownload(blob, filename);
+        saved = "mobile";
+      } else {
+        jobMap[jid].status = "writing";
+        jobMap[jid].writingMsg = "写入文件中...";
+        renderJobs();
 
-      if (!saved) {
-        const msg = `⚠️ 无法保存到「${remoteDirHandle.name}」\n\n原因：${saveError || "未知错误"}\n\n请点击「确定」用浏览器方式保存，或点击「取消」重新选择目录。`;
-        if (confirm(msg)) {
-          triggerDownload(blob, filename);
+        let saveError = "";
+        try {
+          let perm = await remoteDirHandle.queryPermission({ mode: "readwrite" });
+          if (perm !== "granted") {
+            perm = await remoteDirHandle.requestPermission({ mode: "readwrite" });
+            if (perm !== "granted") {
+              throw new Error("用户未授权目录写入权限");
+            }
+          }
+          const fileHandle = await remoteDirHandle.getFileHandle(filename, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          saved = true;
+        } catch (e) {
+          saveError = e.message || String(e);
+          console.error("写入目录失败:", saveError);
+        }
+
+        if (!saved) {
+          const msg = `⚠️ 无法保存到「${remoteDirHandle.name}」\n\n原因：${saveError || "未知错误"}\n\n请点击「确定」用浏览器方式保存，或点击「取消」重新选择目录。`;
+          if (confirm(msg)) {
+            triggerDownload(blob, filename);
+          }
         }
       }
 
       jobMap[jid].status = "done";
       jobMap[jid].percent = 100;
       jobMap[jid].title = filename;
-      jobMap[jid].destination = saved ? remoteDirHandle.name : "浏览器下载";
+      jobMap[jid].destination = saved === "mobile" ? "手机默认下载" : (saved ? remoteDirHandle?.name || "已选目录" : "浏览器下载");
       renderJobs();
     } catch (e) {
       jobMap[jid].status = "error";
@@ -674,6 +700,10 @@ function clearJobs() {
 
 // ========== Open folder ==========
 function openDownloads() {
+  if (isMobile) {
+    alert("📱 文件已保存到手机的浏览器默认下载目录。\n\n• iPhone: Safari → 下载 → 文件 App\n• Android: Chrome → 文件管理器 → Download\n\n也可在浏览器下载记录中查看。");
+    return;
+  }
   if (!remoteDirHandle) {
     alert("请先点击「选择本机目录」选择保存位置。");
     return;
