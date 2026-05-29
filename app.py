@@ -157,6 +157,23 @@ def api_clear_history():
     return jsonify({"message": f"已清空 {count} 条下载记录", "count": count})
 
 
+@app.route("/api/open-dir", methods=["POST"])
+def api_open_dir():
+    """在 Windows 资源管理器中打开本地文件夹"""
+    import os
+    data = request.get_json()
+    dir_param = data.get("dir", "")
+    if not dir_param:
+        return jsonify({"error": "请提供文件夹路径"}), 400
+    target = Path(dir_param)
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        os.startfile(str(target))
+        return jsonify({"message": f"已打开 {target}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 def _get_local_ip() -> str:
     """获取本机局域网 IP"""
     import socket

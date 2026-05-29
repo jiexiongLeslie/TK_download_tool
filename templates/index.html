@@ -362,6 +362,7 @@ https://vm.tiktok.com/abcdef/
     <div class="dir-row">
       <span class="dir-label" id="dirLabelHeader">📁 保存目录 <span style="color:var(--accent)">*必选</span>:</span>
       <button class="btn btn-secondary" id="btnPickDir" onclick="remotePickDir()" style="padding:8px 14px;font-size:12px;">📂 选择本机目录</button>
+      <input type="text" class="dir-input" id="localPathInput" placeholder="或输入本地路径（用于直接打开文件夹）" style="display:none;flex:1;min-width:200px;padding:7px 10px;font-size:12px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);">
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="btnDownload" onclick="startDownload()">
@@ -439,6 +440,9 @@ if (isMobile) {
   document.getElementById("dirLabelHeader").innerHTML = '📁 保存位置: <span style="color:var(--accent2);font-weight:600">浏览器默认下载目录</span>';
   document.getElementById("btnPickDir").style.display = "none";
   document.getElementById("openDirBtn").textContent = "📁 查看下载列表";
+} else {
+  // 桌面端显示本地路径输入框（用于直接打开文件夹）
+  document.getElementById("localPathInput").style.display = "inline-block";
 }
 document.getElementById("btnDownload").onclick = startDownload;
 
@@ -704,15 +708,24 @@ function openDownloads() {
     alert("📱 文件已保存到手机的浏览器默认下载目录。\n\n• iPhone: Safari → 下载 → 文件 App\n• Android: Chrome → 文件管理器 → Download\n\n也可在浏览器下载记录中查看。");
     return;
   }
+  // 优先用本地路径直接打开 Windows 资源管理器
+  const localPath = document.getElementById("localPathInput").value.trim();
+  if (localPath) {
+    fetch("/api/open-dir", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dir: localPath }),
+    }).then(r => r.json()).then(data => {
+      if (data.error) alert("打开失败: " + data.error);
+    });
+    return;
+  }
+  // 否则用浏览器目录弹窗
   if (remoteDirHandle) {
     openRemoteDirectory();
     return;
   }
-  // 还没选目录，引导选择后直接打开
-  alert("请先选择保存视频的目录，选择后将自动打开该目录。");
-  remotePickDir().then(() => {
-    if (remoteDirHandle) openRemoteDirectory();
-  });
+  alert("请先选择保存视频的目录，或在上方输入本地文件夹路径。");
 }
 
 // 远程模式：在弹窗中打开本机目录
