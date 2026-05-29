@@ -282,6 +282,28 @@
   .modal-close { position: absolute; top: -42px; right: -4px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; width: 34px; height: 34px; border-radius: 50%; font-size: 20px; cursor: pointer; transition: all 0.2s; }
   .modal-close:hover { background: rgba(255,255,255,0.15); }
 
+  /* ===== Directory Browser Modal ===== */
+  .dir-modal-content { position: relative; width: 92%; max-width: 780px; max-height: 80vh; background: rgba(12, 12, 30, 0.95); backdrop-filter: blur(24px); border: 1px solid var(--border-strong); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
+  .dir-modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .dir-modal-header .dir-icon { font-size: 22px; }
+  .dir-modal-header .dir-name { font-size: 16px; font-weight: 600; color: var(--accent2); }
+  .dir-modal-header .dir-count { font-size: 12px; color: var(--text3); margin-left: 8px; }
+  .dir-modal-close { margin-left: auto; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text2); width: 30px; height: 30px; border-radius: 8px; font-size: 16px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+  .dir-modal-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  .dir-modal-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+  .dir-modal-empty { text-align: center; padding: 40px 20px; color: var(--text3); }
+  .dir-modal-empty .icon { font-size: 40px; margin-bottom: 10px; opacity: 0.3; }
+  .dir-file-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
+  .dir-file-row:hover { background: rgba(255,255,255,0.05); border-color: var(--border); }
+  .dir-file-row .file-icon { font-size: 20px; flex-shrink: 0; }
+  .dir-file-row .file-name { font-size: 13px; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .dir-file-row .file-size { font-size: 11px; color: var(--text3); flex-shrink: 0; }
+  .dir-file-row .file-action { padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; background: rgba(32,213,236,0.1); color: var(--accent2); border: 1px solid rgba(32,213,236,0.2); flex-shrink: 0; }
+  .dir-file-row .file-action:hover { background: rgba(32,213,236,0.2); }
+  .dir-modal-loading { text-align: center; padding: 48px; color: var(--text3); }
+  .dir-modal-loading .spinner { display: inline-block; width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--accent2); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   code {
     background: rgba(255,255,255,0.06); padding: 2px 6px;
     border-radius: 4px; font-size: 12px; font-family: "Cascadia Code", "Fira Code", monospace;
@@ -386,6 +408,21 @@ https://vm.tiktok.com/abcdef/
   <div class="modal-content" onclick="event.stopPropagation()">
     <button class="modal-close" onclick="closeModal()">&times;</button>
     <video id="modalVideo" controls autoplay></video>
+  </div>
+</div>
+
+<!-- Directory Browser Modal -->
+<div class="modal-overlay" id="dirModal" onclick="closeDirModal(event)">
+  <div class="dir-modal-content" onclick="event.stopPropagation()">
+    <div class="dir-modal-header">
+      <span class="dir-icon">📂</span>
+      <span class="dir-name" id="dirModalName">—</span>
+      <span class="dir-count" id="dirModalCount"></span>
+      <button class="dir-modal-close" onclick="closeDirModal()">✕</button>
+    </div>
+    <div class="dir-modal-body" id="dirModalBody">
+      <div class="dir-modal-loading"><div class="spinner"></div><br>加载中...</div>
+    </div>
   </div>
 </div>
 
@@ -739,7 +776,7 @@ function clearJobs() {
 
 // ========== Open folder ==========
 function openDownloads() {
-  // 远程模式：通过 File System Access API 读取并展示本机目录内容
+  // 远程模式：通过 File System Access API 读取本机目录，在弹窗中展示
   if (!isLocalClient) {
     if (remoteDirHandle) {
       openRemoteDirectory();
@@ -764,15 +801,26 @@ function openDownloads() {
   }).catch(() => {});
 }
 
-// 远程模式：读取本机目录内容并展示
+// 远程模式：在弹窗中打开本机目录
 async function openRemoteDirectory() {
+  const modal = document.getElementById("dirModal");
+  const body = document.getElementById("dirModalBody");
+  const nameEl = document.getElementById("dirModalName");
+  const countEl = document.getElementById("dirModalCount");
+
+  // 先显示 loading
+  nameEl.textContent = remoteDirHandle.name;
+  countEl.textContent = "";
+  body.innerHTML = '<div class="dir-modal-loading"><div class="spinner"></div><br>读取目录中...</div>';
+  modal.classList.add("active");
+
   try {
-    // 先验证权限
+    // 验证权限
     const perm = await remoteDirHandle.queryPermission({ mode: "read" });
     if (perm !== "granted") {
       const req = await remoteDirHandle.requestPermission({ mode: "read" });
       if (req !== "granted") {
-        alert("无法读取目录，请重新点击「选择本机目录」授权。");
+        body.innerHTML = '<div class="dir-modal-empty"><div class="icon">🔒</div><p>无法读取目录，请关闭此窗口后重新点击「选择本机目录」授权</p></div>';
         return;
       }
     }
@@ -782,34 +830,78 @@ async function openRemoteDirectory() {
       if (entry.kind === "file") {
         try {
           const file = await entry.getFile();
-          // 只显示视频文件
-          const ext = file.name.split(".").pop().toLowerCase();
-          if (["mp4", "webm", "mkv", "mov", "avi", "flv", "ts"].includes(ext)) {
-            files.push({
-              name: file.name,
-              size: file.size,
-              mtime: new Date(file.lastModified).toLocaleString("zh-CN"),
-              isRemote: true,
-            });
-          }
+          files.push({
+            name: file.name,
+            size: file.size,
+            mtime: new Date(file.lastModified).toLocaleString("zh-CN"),
+          });
         } catch (e) { /* 跳过不可读文件 */ }
       }
     }
 
-    // 更新已下载文件区域
-    const dirLabel = document.getElementById("dirLabel");
-    if (dirLabel) dirLabel.textContent = `— ${remoteDirHandle.name} (本机)`;
-    renderFiles(files);
+    // 按修改时间倒序
+    files.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
 
-    // 自动展开文件区域
-    if (!filesExpanded) toggleFiles();
+    countEl.textContent = `${files.length} 个文件`;
 
-    // 更新文件计数
-    const countEl = document.getElementById("filesCount");
-    if (countEl) countEl.textContent = files.length > 0 ? `(${files.length} 个)` : "";
+    if (files.length === 0) {
+      body.innerHTML = '<div class="dir-modal-empty"><div class="icon">📂</div><p>目录为空</p></div>';
+      return;
+    }
+
+    // 判断文件类型图标
+    const videoExts = ["mp4", "webm", "mkv", "mov", "avi", "flv", "ts"];
+    const imgExts = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"];
+
+    let html = "";
+    for (const f of files) {
+      const ext = f.name.split(".").pop().toLowerCase();
+      let icon = "📄";
+      let isVideo = false;
+      if (videoExts.includes(ext)) { icon = "🎬"; isVideo = true; }
+      else if (imgExts.includes(ext)) icon = "🖼️";
+      else if (ext === "srt" || ext === "ass") icon = "💬";
+
+      html += `
+        <div class="dir-file-row" ${isVideo ? `onclick="playRemoteVideoInModal('${escJs(f.name)}')"` : ""}>
+          <span class="file-icon">${icon}</span>
+          <span class="file-name" title="${esc(f.name)}">${esc(f.name)}</span>
+          <span class="file-size">${formatSize(f.size)}</span>
+          ${isVideo ? '<span class="file-action">▶ 播放</span>' : ""}
+        </div>`;
+    }
+    body.innerHTML = html;
+
   } catch (e) {
-    console.error("读取远程目录失败:", e);
-    alert(`读取目录失败: ${e.message}\n\n请重新选择本机目录。`);
+    body.innerHTML = `<div class="dir-modal-empty"><div class="icon">❌</div><p>读取目录失败: ${esc(e.message)}</p></div>`;
+  }
+}
+
+function closeDirModal(e) {
+  if (e && e.target !== document.getElementById("dirModal")) return;
+  document.getElementById("dirModal").classList.remove("active");
+}
+
+// 在弹窗内播放远程本机视频
+async function playRemoteVideoInModal(filename) {
+  if (!remoteDirHandle) return;
+  try {
+    const fileHandle = await remoteDirHandle.getFileHandle(filename);
+    const file = await fileHandle.getFile();
+    const url = URL.createObjectURL(file);
+
+    // 关闭目录弹窗
+    closeDirModal();
+
+    // 打开视频播放弹窗
+    const modal = document.getElementById("videoModal");
+    const video = document.getElementById("modalVideo");
+    video.src = url;
+    modal.classList.add("active");
+    video.play();
+    video.addEventListener("ended", () => URL.revokeObjectURL(url), { once: true });
+  } catch (e) {
+    alert(`无法播放文件: ${e.message}`);
   }
 }
 
@@ -959,9 +1051,7 @@ function renderFiles(files) {
   const visible = files.slice(0, showCount);
   const hasMore = files.length > showCount;
 
-  let html = visible.map(f => {
-    const isRemote = f.isRemote;
-    return `
+  let html = visible.map(f => `
     <div class="file-card">
       <div class="fname">${esc(f.name)}</div>
       <div class="finfo">
@@ -969,15 +1059,12 @@ function renderFiles(files) {
         <span>${f.mtime}</span>
       </div>
       <div class="file-actions">
-        ${isRemote
-          ? `<a class="file-play" onclick="playRemoteVideo('${escJs(f.name)}')">▶️</a>`
-          : `<a class="btn-dl" href="/api/video/${f.name.replace(/\.mp4$/,'')}" download>⬇️</a>
-             <a class="file-play" onclick="playVideo('${escJs(f.name)}')">▶️</a>
-             <button class="btn-del" onclick="deleteFile('${escJs(f.name)}')">🗑️</button>`
-        }
+        <a class="btn-dl" href="/api/video/${f.name.replace(/\.mp4$/,'')}" download>⬇️</a>
+        <a class="file-play" onclick="playVideo('${escJs(f.name)}')">▶️</a>
+        <button class="btn-del" onclick="deleteFile('${escJs(f.name)}')">🗑️</button>
       </div>
-    </div>`;
-  }).join("");
+    </div>
+  `).join("");
 
   if (hasMore) {
     html += `<div style="grid-column:1/-1;text-align:center;padding:12px">
@@ -1043,28 +1130,6 @@ function closeModal(e) {
   modal.classList.remove("active");
   video.pause();
   video.src = "";
-}
-
-// ========== Remote Video Playback ==========
-async function playRemoteVideo(filename) {
-  if (!remoteDirHandle) {
-    alert("请先选择本机目录");
-    return;
-  }
-  try {
-    const fileHandle = await remoteDirHandle.getFileHandle(filename);
-    const file = await fileHandle.getFile();
-    const url = URL.createObjectURL(file);
-    const modal = document.getElementById("videoModal");
-    const video = document.getElementById("modalVideo");
-    video.src = url;
-    modal.classList.add("active");
-    video.play();
-    // 关闭时释放 URL
-    video.addEventListener("ended", () => URL.revokeObjectURL(url), { once: true });
-  } catch (e) {
-    alert(`无法播放文件: ${e.message}`);
-  }
 }
 
 // ========== Proxy Toggle ==========
