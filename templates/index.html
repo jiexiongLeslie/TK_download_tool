@@ -449,38 +449,54 @@ async function startDownload() {
         const totalBytes = parseInt(resp.headers.get("Content-Length") || "0");
         const reader = resp.body.getReader();
         const chunks = [];
-        let received = 0;
+        let received = 0, lastReceived = 0, lastTime = Date.now();
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           chunks.push(value);
           received += value.length;
+          const now = Date.now();
+          const elapsed = (now - lastTime) / 1000;
           if (totalBytes > 0) {
             jobMap[jid].percent = Math.round(received / totalBytes * 100);
-            renderJobs();
           }
+          if (elapsed > 0.5) {
+            const speed = (received - lastReceived) / elapsed;
+            jobMap[jid].speed = formatSpeed(speed);
+            lastReceived = received;
+            lastTime = now;
+          }
+          if (totalBytes > 0) {
+            jobMap[jid].title = `${filename || url} (${formatSize(received)}/${formatSize(totalBytes)})`;
+          }
+          renderJobs();
         }
 
         const blob = new Blob(chunks);
         const cd = resp.headers.get("Content-Disposition") || "";
         const m = cd.match(/filename\*=UTF-8''(.+)/) || cd.match(/filename="?([^"]+)"?/);
-        const filename = m ? decodeURIComponent(m[1]) : `video_${Date.now()}.mp4`;
+        let filename = m ? decodeURIComponent(m[1]) : `video_${Date.now()}.mp4`;
+        // 清理非法文件名字符
+        filename = filename.replace(/[\\/:*?"<>|]/g, "_").substring(0, 120);
 
+        // 尝试写入选定目录，失败则弹出浏览器下载
+        let saved = false;
         if (remoteDirHandle) {
           try {
             const fileHandle = await remoteDirHandle.getFileHandle(filename, { create: true });
             const writable = await fileHandle.createWritable();
             await writable.write(blob);
             await writable.close();
-          } catch (e) { triggerDownload(blob, filename); }
-        } else {
-          triggerDownload(blob, filename);
+            saved = true;
+          } catch (e) { /* 写入失败，回退 */ }
         }
+        if (!saved) { triggerDownload(blob, filename); }
 
         jobMap[jid].status = "done";
         jobMap[jid].percent = 100;
         jobMap[jid].title = filename;
+        jobMap[jid].destination = saved ? remoteDirHandle?.name : "浏览器下载";
         renderJobs();
       } catch (e) {
         jobMap[jid].status = "error";
@@ -638,6 +654,7 @@ function renderJobs() {
           <div class="meta">
             ${status === "error" ? esc(j.error || "未知错误") : `ID: ${id}`}
             ${j.speed && status === "downloading" ? ` · ${j.speed}` : ""}
+            ${status === "done" && j.destination ? ` · 已保存到: ${j.destination}` : ""}
           </div>
         </div>
         <div class="progress-wrap">
@@ -679,13 +696,17 @@ function clearJobs() {
 
 // ========== Open folder ==========
 function openDownloads() {
+  // 远程模式：提示用户文件已下载到本机浏览器下载目录
+  if (!isLocalClient) {
+    if (remoteDirHandle) {
+      alert(`文件已保存到本机的 "${remoteDirHandle.name}" 目录。`);
+    } else {
+      alert("文件已保存到浏览器的默认下载目录。");
+    }
+    return;
+  }
+  // 本地模式：打开服务器目录
   const dir = currentSaveDir || "";
-  // 刷新文件列表
-  const url = dir ? `/api/file?dir=${encodeURIComponent(dir)}` : "/api/file";
-  fetch(url).then(r => r.json()).then(d => {
-    renderFiles(d.files);
-  });
-  // 打开文件夹
   fetch("/api/open-dir", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -874,6 +895,10 @@ function formatSize(bytes) {
   let i = 0, s = bytes;
   while (s >= 1024 && i < units.length - 1) { s /= 1024; i++; }
   return s.toFixed(1) + " " + units[i];
+}
+
+function formatSpeed(bytesPerSec) {
+  return formatSize(bytesPerSec) + "/s";
 }
 
 function escJs(s) {

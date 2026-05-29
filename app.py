@@ -172,17 +172,23 @@ def api_stream_download():
     if not video_url:
         return jsonify({"error": "未找到视频下载链接"}), 500
 
-    # Step 2: 流式传输视频到客户端（不写入服务器磁盘）
+    # Step 2: 先获取 Content-Length 再流式传输
     content_length = 0
+    try:
+        head_req = urlreq.Request(video_url, method="HEAD")
+        head_req.add_header("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15")
+        head_req.add_header("Referer", "https://www.tiktok.com/")
+        head_resp = opener.open(head_req, timeout=15)
+        content_length = int(head_resp.headers.get("Content-Length", 0))
+    except Exception:
+        pass
 
     def generate():
-        nonlocal content_length
         try:
             dl_resp = opener.open(urlreq.Request(video_url, headers={
                 "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
                 "Referer": "https://www.tiktok.com/",
             }), timeout=120)
-            content_length = int(dl_resp.headers.get("Content-Length", 0))
             while True:
                 chunk = dl_resp.read(65536)
                 if not chunk:
@@ -200,6 +206,7 @@ def api_stream_download():
         mimetype="video/mp4",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_fn}",
+            "Content-Length": str(content_length),
             "Cache-Control": "no-cache",
         },
     )
