@@ -739,12 +739,12 @@ function clearJobs() {
 
 // ========== Open folder ==========
 function openDownloads() {
-  // 远程模式：提示用户文件已保存到哪个本机目录
+  // 远程模式：通过 File System Access API 读取并展示本机目录内容
   if (!isLocalClient) {
     if (remoteDirHandle) {
-      alert(`📁 文件已保存到你选择的目录：\n\n"${remoteDirHandle.name}"\n\n请在文件管理器中查看该文件夹。`);
+      openRemoteDirectory();
     } else {
-      alert("📁 文件已保存到浏览器的默认下载目录。\n\n如需指定保存位置，请先点击「选择本机目录」。");
+      alert("📁 你还未选择本机目录。\n\n请先点击「选择本机目录」选择保存位置。");
     }
     return;
   }
@@ -762,6 +762,55 @@ function openDownloads() {
   }).then(r => r.json()).then(data => {
     if (data.error) alert("打开目录失败: " + data.error);
   }).catch(() => {});
+}
+
+// 远程模式：读取本机目录内容并展示
+async function openRemoteDirectory() {
+  try {
+    // 先验证权限
+    const perm = await remoteDirHandle.queryPermission({ mode: "read" });
+    if (perm !== "granted") {
+      const req = await remoteDirHandle.requestPermission({ mode: "read" });
+      if (req !== "granted") {
+        alert("无法读取目录，请重新点击「选择本机目录」授权。");
+        return;
+      }
+    }
+
+    const files = [];
+    for await (const entry of remoteDirHandle.values()) {
+      if (entry.kind === "file") {
+        try {
+          const file = await entry.getFile();
+          // 只显示视频文件
+          const ext = file.name.split(".").pop().toLowerCase();
+          if (["mp4", "webm", "mkv", "mov", "avi", "flv", "ts"].includes(ext)) {
+            files.push({
+              name: file.name,
+              size: file.size,
+              mtime: new Date(file.lastModified).toLocaleString("zh-CN"),
+              isRemote: true,
+            });
+          }
+        } catch (e) { /* 跳过不可读文件 */ }
+      }
+    }
+
+    // 更新已下载文件区域
+    const dirLabel = document.getElementById("dirLabel");
+    if (dirLabel) dirLabel.textContent = `— ${remoteDirHandle.name} (本机)`;
+    renderFiles(files);
+
+    // 自动展开文件区域
+    if (!filesExpanded) toggleFiles();
+
+    // 更新文件计数
+    const countEl = document.getElementById("filesCount");
+    if (countEl) countEl.textContent = files.length > 0 ? `(${files.length} 个)` : "";
+  } catch (e) {
+    console.error("读取远程目录失败:", e);
+    alert(`读取目录失败: ${e.message}\n\n请重新选择本机目录。`);
+  }
 }
 
 // ========== Files ==========
@@ -910,7 +959,9 @@ function renderFiles(files) {
   const visible = files.slice(0, showCount);
   const hasMore = files.length > showCount;
 
-  let html = visible.map(f => `
+  let html = visible.map(f => {
+    const isRemote = f.isRemote;
+    return `
     <div class="file-card">
       <div class="fname">${esc(f.name)}</div>
       <div class="finfo">
@@ -918,12 +969,15 @@ function renderFiles(files) {
         <span>${f.mtime}</span>
       </div>
       <div class="file-actions">
-        <a class="btn-dl" href="/api/video/${f.name.replace(/\.mp4$/,'')}" download>⬇️</a>
-        <a class="file-play" onclick="playVideo('${escJs(f.name)}')">▶️</a>
-        <button class="btn-del" onclick="deleteFile('${escJs(f.name)}')">🗑️</button>
+        ${isRemote
+          ? `<a class="file-play" onclick="playRemoteVideo('${escJs(f.name)}')">▶️</a>`
+          : `<a class="btn-dl" href="/api/video/${f.name.replace(/\.mp4$/,'')}" download>⬇️</a>
+             <a class="file-play" onclick="playVideo('${escJs(f.name)}')">▶️</a>
+             <button class="btn-del" onclick="deleteFile('${escJs(f.name)}')">🗑️</button>`
+        }
       </div>
-    </div>
-  `).join("");
+    </div>`;
+  }).join("");
 
   if (hasMore) {
     html += `<div style="grid-column:1/-1;text-align:center;padding:12px">
@@ -989,6 +1043,28 @@ function closeModal(e) {
   modal.classList.remove("active");
   video.pause();
   video.src = "";
+}
+
+// ========== Remote Video Playback ==========
+async function playRemoteVideo(filename) {
+  if (!remoteDirHandle) {
+    alert("请先选择本机目录");
+    return;
+  }
+  try {
+    const fileHandle = await remoteDirHandle.getFileHandle(filename);
+    const file = await fileHandle.getFile();
+    const url = URL.createObjectURL(file);
+    const modal = document.getElementById("videoModal");
+    const video = document.getElementById("modalVideo");
+    video.src = url;
+    modal.classList.add("active");
+    video.play();
+    // 关闭时释放 URL
+    video.addEventListener("ended", () => URL.revokeObjectURL(url), { once: true });
+  } catch (e) {
+    alert(`无法播放文件: ${e.message}`);
+  }
 }
 
 // ========== Proxy Toggle ==========
